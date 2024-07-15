@@ -22,7 +22,7 @@ conda activate "${MD_ENV}"
 
 # add ecoassist folder to path
 export PATH="${ECO_PATH}/cameratraps:$PATH"
-export PYTHONPATH="$PYTHONPATH:${ECO_PATH}/cameratraps:${ECO_PATH}/yolov5"
+export PYTHONPATH="$PYTHONPATH:${ECO_PATH}/cameratraps:${ECO_PATH}/cameratraps/megadetector:${ECO_PATH}/yolov5"
 
 # run script
 python "${ECO_PATH}/cameratraps/megadetector/detection/run_detector_batch.py" "${ROOT_DIR}/models/megadetector/md_v5a.0.0.pt" "${ROOT_DIR}/temp/org" "${ROOT_DIR}/temp/org/image_recognition_file.json" --threshold "${DET_THRESH}" --output_relative_filenames --quiet
