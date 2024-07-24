@@ -813,7 +813,7 @@ def send_whatsapp(detection_payload):
     }
     res = requests.post(url, imgbb_payload)
     upload_report = res.json()
-    print(json.dumps(upload_report, indent = 2))
+    # print(json.dumps(upload_report, indent = 2))
     log("uploaded to imgbb", indent = 3)
     
     # check if it worked
