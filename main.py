@@ -87,13 +87,23 @@ import json
 with open("config.json", 'r') as f:
     config = json.load(f)
 
+# check OS
+if os.name == 'nt': # windows
+    osys = "windows"
+elif platform.system() == 'Darwin': # macos
+    osys = "macos"
+else: # linux
+    osys = "linux"
+
 # general
-conda_dir_unix = config['conda_dir_unix']
+conda_dir_macos = config['conda_dir_macos']
+conda_dir_linux = config['conda_dir_linux']
 conda_dir_windows = config['conda_dir_windows']
-conda_dir = conda_dir_windows if platform.system() == "Windows" else conda_dir_unix
-EcoAssist_files_unix = config['EcoAssist_files_unix']
+conda_dir = conda_dir_windows if osys == "windows" else conda_dir_macos if osys == "macos" else conda_dir_linux
+EcoAssist_files_macos = config['EcoAssist_files_macos']
+EcoAssist_files_linux = config['EcoAssist_files_linux']
 EcoAssist_files_windows = config['EcoAssist_files_windows']
-EcoAssist_files = EcoAssist_files_windows if platform.system() == "Windows" else EcoAssist_files_unix
+EcoAssist_files = EcoAssist_files_windows if osys == "windows" else EcoAssist_files_macos if osys == "macos" else EcoAssist_files_linux
 
 # gmail 
 gmail_label = config['gmail_label']
@@ -112,6 +122,11 @@ twilio_client = Client(twilio_account_sid, twilio_auth_token)
 # mailgun
 mailgun_messages_url = config['mailgun_messages_url']
 mailgun_api_key = config['mailgun_api_key']
+
+# imgbb
+imgbb_key = config['imgbb_key']
+use_imgbb = osys in ["windows", "macos"]
+use_imgbb = True # DEBUG
 
 # add EcoAssist files to PATH
 sys.path.insert(0, os.path.join(EcoAssist_files))
@@ -478,13 +493,13 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
     log("running megadetector", indent = 2)
     md_cmd_windows = [f'{curr_dir}/run_megadetector.bat', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files)]
     md_cmd_unix = ['bash', f'{curr_dir}/run_megadetector.command', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files)]
-    run_bash_cmd(md_cmd_windows if platform.system() == "Windows" else md_cmd_unix)
+    run_bash_cmd(md_cmd_windows if osys == "windows" else md_cmd_unix)
 
     # run deepfaune 
     log("running deepfaune", indent = 2)
     df_cmd_windows = [f'{curr_dir}/run_deepfaune.bat', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files)]
     df_cmd_unix = ['bash', f'{curr_dir}/run_deepfaune.command', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files)]
-    run_bash_cmd(df_cmd_windows if platform.system() == "Windows" else df_cmd_unix)
+    run_bash_cmd(df_cmd_windows if osys == "windows" else df_cmd_unix)
 
     # loop through json
     json_fpath = os.path.join(curr_dir, "temp", "org", "image_recognition_file.json")
@@ -805,24 +820,32 @@ class IMAPConnection():
 # send whatsapp message
 def send_whatsapp(detection_payload):
 
-    # the image must be from url, so upload to imgBB gets automatically removed after five minutes
-    url = "https://api.imgbb.com/1/upload"
-    imgbb_payload = {
-        "key": 'b55fb6c27e660ec291fe7baca2f7a27a',
-        "image": detection_payload["image"]
-    }
-    res = requests.post(url, imgbb_payload)
-    upload_report = res.json()
-    # print(json.dumps(upload_report, indent = 2))
-    log("uploaded to imgbb", indent = 3)
+    # upload image to imgbb
+    if use_imgbb:
+
+        # the image must be from url, so upload to imgBB gets automatically removed after five minutes
+        url = "https://api.imgbb.com/1/upload"
+        imgbb_payload = {
+            "key": imgbb_key,
+            "image": detection_payload["image"]
+        }
+        res = requests.post(url, imgbb_payload)
+        upload_report = res.json()
+        # print(json.dumps(upload_report, indent = 2))
+        log("uploaded to imgbb", indent = 3)
     
-    # check if it worked
-    success = upload_report.get("success", False)
-    if not success:
-        print("failed to upload. No whatsapp img. Send without image.") # TODO
+        # check if it worked
+        success = upload_report.get("success", False)
+        if not success:
+            print("failed to upload. No whatsapp img. Send without image.") # TODO
+        else:
+            img_id_suffix = upload_report["data"]["url"].replace('https://i.ibb.co/', '')
+            log(f"retrieved img url suffix {img_id_suffix}", indent = 3)
+    
+    # on ubuntu server we don't need imgBB
     else:
-        img_id_suffix = upload_report["data"]["url"].replace('https://i.ibb.co/', '')
-        log(f"retrieved img url suffix {img_id_suffix}", indent = 3)
+        print(f"debug detection_payload: {detection_payload['image']}")
+        exit() # DEBUG
 
     # set vars to be passed on to the whatsapp template
     # https://console.twilio.com/us1/develop/sms/content-template-builder
@@ -1490,6 +1513,3 @@ def run_script():
 # initially run the script
 if __name__ == "__main__":
     run_script()
-
-
-
