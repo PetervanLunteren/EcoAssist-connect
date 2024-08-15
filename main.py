@@ -126,13 +126,16 @@ mailgun_api_key = config['mailgun_api_key']
 # imgbb
 imgbb_key = config['imgbb_key']
 use_imgbb = osys in ["windows", "macos"]
-use_imgbb = True # DEBUG
+use_imgbb = False # DEBUG
+if osys == "linux": # DEBUG
+    fpath_vis_img = os.path.join('/usr/share/nginx/files/images/', 'visualized.jpg') # DEBUG
 
 # add EcoAssist files to PATH
 sys.path.insert(0, os.path.join(EcoAssist_files))
 
 # add utils
 from visualise_detection.bounding_box import bounding_box as bb
+
 
 ########################################
 ############ MAIN FUNCTIONS ############
@@ -587,7 +590,7 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
         # send detection to whatsapp numbers
         if all_project_settings[project_name]["whatsapp_receivers"]:
             log(f"initiating whatsapp service", indent = 3)
-            send_whatsapp(detection_payload)
+            send_whatsapp(detection_payload, fpath_vis_img)
         
         # send email
         if all_project_settings[project_name]["email_receivers"]:
@@ -818,7 +821,7 @@ class IMAPConnection():
             raise
 
 # send whatsapp message
-def send_whatsapp(detection_payload):
+def send_whatsapp(detection_payload, fpath_vis_img):
 
     # upload image to imgbb
     if use_imgbb:
@@ -842,9 +845,18 @@ def send_whatsapp(detection_payload):
             img_id_suffix = upload_report["data"]["url"].replace('https://i.ibb.co/', '')
             log(f"retrieved img url suffix {img_id_suffix}", indent = 3)
     
-    # on ubuntu server we don't need imgBB
+    # on ubuntu server we don't need imgBB but place the file in a file sharing folder
     else:
-        print(f"debug detection_payload: {detection_payload['image']}")
+        print(json.dumps({k: v for k, v in detection_payload.items() if k != "image"}, indent=2)) # DEBUG
+        
+        img = detection_payload["image"]
+        
+        print(f"type(img): {type(img)}") # DEBUG
+        
+        shutil.copy(fpath_vis_img, '/Users/peter/Desktop/temp-folder')
+        
+        img_id_suffix = "hCJGHsD/8a0ec573b5ac.jpg" # DEBUG
+        
         exit() # DEBUG
 
     # set vars to be passed on to the whatsapp template
@@ -883,6 +895,7 @@ def send_whatsapp(detection_payload):
 # retry *stop_max_attempt_number* times with an exponentially increasing wait time, starting from *wait_exponential_multiplier* milliseconds, up to a maximum of *wait_exponential_max* milliseconds
 def send_whatsapp_via_twilio(content_vars, whatsapp_receivers):
     try:
+        twilio_content_template_SID = 'HX08bef972801451a6d736962cef6b39d0' # DEBUG TODO: dit moet in de config staan als het ubuntu is
         for number, friendly_name in whatsapp_receivers:
             message = twilio_client.messages.create(
                 content_sid=twilio_content_template_SID,
@@ -1513,3 +1526,6 @@ def run_script():
 # initially run the script
 if __name__ == "__main__":
     run_script()
+
+
+
