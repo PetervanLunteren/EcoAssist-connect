@@ -1,6 +1,14 @@
 # EcoAssist connect
 # Analyse images in real time and send notifications 
-# Peter van Lunteren, 15 Mar 2024
+# Peter van Lunteren, 16 Aug 2024
+
+# TODO: add the species alias code in here (works on windows)
+# TODO: make folder stucture every time the script is run (temp folder, output folder, etc)
+# TODO: clean saved images every week after the report is sent
+# TODO: save daily report in the project folder
+# TODO: adjust the bat files with new img_dir
+# TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
+# TODO: make script a service on the ubuntu server
 
 ###########################################
 ############ INITIALIZE SCRIPT ############
@@ -13,6 +21,7 @@ import cv2
 import csv
 import imaplib
 import torch
+import uuid
 import email
 from email.header import decode_header
 from PIL import Image
@@ -53,12 +62,13 @@ curr_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(curr_dir)
 
 # init vars
-fpath_vis_img = os.path.join(curr_dir, 'temp', 'vis', 'visualized.jpg')
+# fpath_vis_img = os.path.join(curr_dir, 'temp', 'vis', 'visualized.jpg')
 fpath_log_file = os.path.join(curr_dir, 'output', 'log.txt')
 fpath_daily_report_csv = os.path.join(curr_dir, 'output', 'daily_output.csv')
 fpath_observations_csv = os.path.join(curr_dir, 'output', 'results_detections.csv')
 fpath_project_specification_dir = os.path.join(curr_dir, 'settings')
 fpath_deepfaune_variables_json = os.path.join(curr_dir, 'models', 'deepfaune', 'variables.json')
+admin_csv = os.path.join(curr_dir, "admin.csv")
 
 # if the connection to gmail fails, it will retry with the following params
 # retry *stop_max_attempt_number* times with an exponentially
@@ -104,6 +114,12 @@ EcoAssist_files_macos = config['EcoAssist_files_macos']
 EcoAssist_files_linux = config['EcoAssist_files_linux']
 EcoAssist_files_windows = config['EcoAssist_files_windows']
 EcoAssist_files = EcoAssist_files_windows if osys == "windows" else EcoAssist_files_macos if osys == "macos" else EcoAssist_files_linux
+file_storage_dir_linux = config['file_storage_dir_linux']
+url_prefix_macos = config['url_prefix_macos']
+url_prefix_linux = config['url_prefix_linux']
+url_prefix_windows = config['url_prefix_windows']
+url_prefix = url_prefix_windows if osys == "windows" else url_prefix_macos if osys == "macos" else url_prefix_linux
+save_images = config['save_images']
 
 # gmail 
 gmail_label = config['gmail_label']
@@ -116,7 +132,10 @@ from twilio.rest import Client
 twilio_account_sid = config['twilio_account_sid']
 twilio_auth_token = config['twilio_auth_token']
 twilio_messaging_service_ID = config['twilio_messaging_service_ID']
-twilio_content_template_SID = config['twilio_content_template_SID']
+twilio_content_template_SID_macos = config['twilio_content_template_SID_macos']
+twilio_content_template_SID_linux = config['twilio_content_template_SID_linux']
+twilio_content_template_SID_windows = config['twilio_content_template_SID_windows']
+twilio_content_template_SID = twilio_content_template_SID_windows if osys == "windows" else twilio_content_template_SID_macos if osys == "macos" else twilio_content_template_SID_linux
 twilio_client = Client(twilio_account_sid, twilio_auth_token)
 
 # mailgun
@@ -126,9 +145,6 @@ mailgun_api_key = config['mailgun_api_key']
 # imgbb
 imgbb_key = config['imgbb_key']
 use_imgbb = osys in ["windows", "macos"]
-use_imgbb = False # DEBUG
-if osys == "linux": # DEBUG
-    fpath_vis_img = os.path.join('/usr/share/nginx/files/images/', 'visualized.jpg') # DEBUG
 
 # add EcoAssist files to PATH
 sys.path.insert(0, os.path.join(EcoAssist_files))
@@ -478,7 +494,7 @@ def blur_box(image_path, width, height, bbox):
     log(f"blurred image saved", indent = 2)
 
 # predict on single image
-def predict_single_image(filename, PIL_image, camera_id, project_name):
+def predict_single_image(filename, full_path_org, full_path_vis, camera_id, project_name):
     log(f"running inference", indent = 2)
 
     # get project specific thresholds
@@ -491,21 +507,25 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
 
     # make sure only the project specific species can be predicted
     update_species_presence_json(project_name) 
+    
+    # init vars
+    img_dir = os.path.dirname(full_path_org)
+    Path(os.path.dirname(full_path_vis)).mkdir(parents=True, exist_ok=True)
 
     # run megadetector
     log("running megadetector", indent = 2)
-    md_cmd_windows = [f'{curr_dir}/run_megadetector.bat', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files)]
-    md_cmd_unix = ['bash', f'{curr_dir}/run_megadetector.command', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files)]
+    md_cmd_windows = [f'{curr_dir}/run_megadetector.bat', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files), str(img_dir)]
+    md_cmd_unix = ['bash', f'{curr_dir}/run_megadetector.command', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files), str(img_dir)]
     run_bash_cmd(md_cmd_windows if osys == "windows" else md_cmd_unix)
 
     # run deepfaune 
     log("running deepfaune", indent = 2)
-    df_cmd_windows = [f'{curr_dir}/run_deepfaune.bat', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files)]
-    df_cmd_unix = ['bash', f'{curr_dir}/run_deepfaune.command', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files)]
+    df_cmd_windows = [f'{curr_dir}/run_deepfaune.bat', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files), str(img_dir)]
+    df_cmd_unix = ['bash', f'{curr_dir}/run_deepfaune.command', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files), str(img_dir)]
     run_bash_cmd(df_cmd_windows if osys == "windows" else df_cmd_unix)
 
     # loop through json
-    json_fpath = os.path.join(curr_dir, "temp", "org", "image_recognition_file.json")
+    json_fpath = os.path.join(img_dir, "image_recognition_file.json")
     with open(json_fpath) as image_recognition_file_content:
         data = json.load(image_recognition_file_content)
     label_map = data['detection_categories']
@@ -522,12 +542,13 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
 
     # if nothing is detected add dummy detection so that people can receive a notification if required
     if detections_dict == {}:
-        log(f"detected no objects -> hence labelled as empty image", indent = 2)
+        log(f"detected no objects", indent = 2)
         detections_dict["empty"] = [{'conf': 0, 'bbox': [0, 0, 0, 0]}]
     
     # image specific metadata
-    exif = fetch_img_exif()
-    gps = fetch_lat_lon()
+    exif = fetch_img_exif(full_path_org)
+    gps = fetch_lat_lon(full_path_org)
+    PIL_image = Image.open(full_path_org)
     img_width, img_height = PIL_image.size
 
     # blur people
@@ -536,7 +557,7 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
             for person_info in detections_dict["person"]:
                 if person_info["conf"] >= postprocess_threshold:
                     log(f"blurring person bbox", indent = 2)
-                    blur_box(fpath_org_img, img_width, img_height, person_info["bbox"])
+                    blur_box(full_path_org, img_width, img_height, person_info["bbox"])
 
     # detection specifc information
     for label, detections in detections_dict.items():
@@ -546,15 +567,15 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
 
         # visualize
         log(f"visualising image", indent = 3)
-        image_to_vis = cv2.imread(fpath_org_img)
+        image_to_vis = cv2.imread(full_path_org)
         for detection in detections:
             left = int(round(detection['bbox'][0] * img_width))
             top = int(round(detection['bbox'][1] * img_height))
             right = int(round(detection['bbox'][2] * img_width)) + left
             bottom = int(round(detection['bbox'][3] * img_height)) + top
             bb.add(image_to_vis, left, top, right, bottom, f'{label} {detection["conf"]}', "red")
-        cv2.imwrite(fpath_vis_img, image_to_vis)
-        log(f"saved visualised image to {fpath_vis_img}", indent = 3)
+        cv2.imwrite(full_path_vis, image_to_vis)
+        log(f"saved visualised image to {full_path_vis}", indent = 3)
         
         # structure payload
         detection_payload = {
@@ -564,9 +585,9 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
             "timestamp" : exif.get('DateTimeOriginal', "unknown"),
             "media_name" : filename,
             "type" : "image/jpeg",
-            "size" : os.path.getsize(fpath_vis_img),
+            "size" : os.path.getsize(full_path_vis),
             "summary" : "Generated by EcoAssist - https://addaxdatascience.com/ecoassist/ ",
-            "image" : convert_to_base64(fpath_vis_img),
+            "image" : convert_to_base64(full_path_vis),
             "camera_make" : exif.get('Make', "unknown"),
             "camera_model" : exif.get('Model', "unknown"),
             "detection" : label,
@@ -590,7 +611,7 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
         # send detection to whatsapp numbers
         if all_project_settings[project_name]["whatsapp_receivers"]:
             log(f"initiating whatsapp service", indent = 3)
-            send_whatsapp(detection_payload, fpath_vis_img)
+            send_whatsapp(detection_payload, full_path_vis)
         
         # send email
         if all_project_settings[project_name]["email_receivers"]:
@@ -639,7 +660,7 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
     # save observations to in CSVs
     dst_dir = os.path.join(curr_dir, "output", project_name)
     Path(dst_dir).mkdir(parents=True, exist_ok=True)
-    postprocess(src_dir = os.path.join(curr_dir, 'temp', 'org'), 
+    postprocess(src_dir = img_dir, 
                 dst_dir = dst_dir,
                 thresh = postprocess_threshold,
                 sep = False,
@@ -652,38 +673,38 @@ def predict_single_image(filename, PIL_image, camera_id, project_name):
                 data_type = "img",
                 time_elapsed = detection_payload["time_elapsed"])
     
-    # save the visualised images
-    dst_dir = os.path.join(curr_dir, "output", project_name, "saved_imgs", "vis")
-    Path(dst_dir).mkdir(parents=True, exist_ok=True)
-    postprocess(src_dir = os.path.join(curr_dir, 'temp', 'org'),
-                dst_dir = dst_dir,
-                thresh = postprocess_threshold,
-                sep = True,
-                file_placement = 2,
-                sep_conf = False,
-                vis = True,
-                crp = False,
-                exp = False,
-                exp_format = "CSV",
-                data_type = "img")
+    if save_images:
+        # save the visualised images
+        dst_dir = os.path.join(curr_dir, "output", project_name, "saved_imgs", "vis")
+        Path(dst_dir).mkdir(parents=True, exist_ok=True)
+        postprocess(src_dir = img_dir,
+                    dst_dir = dst_dir,
+                    thresh = postprocess_threshold,
+                    sep = True,
+                    file_placement = 2,
+                    sep_conf = False,
+                    vis = True,
+                    crp = False,
+                    exp = False,
+                    exp_format = "CSV",
+                    data_type = "img")
 
-    # save the original images
-    dst_dir = os.path.join(curr_dir, "output", project_name, "saved_imgs", "org")
-    Path(dst_dir).mkdir(parents=True, exist_ok=True)
-    postprocess(src_dir = os.path.join(curr_dir, 'temp', 'org'),
-                dst_dir = dst_dir,
-                thresh = postprocess_threshold,
-                sep = True,
-                file_placement = 2,
-                sep_conf = False,
-                vis = False,
-                crp = False,
-                exp = False,
-                exp_format = "CSV",
-                data_type = "img")
+        # save the original images
+        dst_dir = os.path.join(curr_dir, "output", project_name, "saved_imgs", "org")
+        Path(dst_dir).mkdir(parents=True, exist_ok=True)
+        postprocess(src_dir = img_dir,
+                    dst_dir = dst_dir,
+                    thresh = postprocess_threshold,
+                    sep = True,
+                    file_placement = 2,
+                    sep_conf = False,
+                    vis = False,
+                    crp = False,
+                    exp = False,
+                    exp_format = "CSV",
+                    data_type = "img")
 
-    # delete temporary files
-    remove_temp_files()
+    return True
 
 # refresh folder and remove temporary files
 def remove_temp_files():
@@ -705,6 +726,10 @@ def retrieve_project_name_from_imei(input_imei):
             log(f"found imei '{input_imei}' listed under project '{project_name}'", indent = 2)
             return project_name
 
+# convert image from base64
+# def convert_from_base64(base64_string):
+#     return base64.b64decode(base64_string)
+
 # gmail checker with retry functionality
 class IMAPConnection():
     
@@ -721,7 +746,7 @@ class IMAPConnection():
     # check for incoming emails from the camera trap
     @retrying.retry(stop_max_attempt_number=stop_max_attempt_number, wait_exponential_multiplier=wait_exponential_multiplier, wait_exponential_max=wait_exponential_max)
     # retry *stop_max_attempt_number* times with an exponentially increasing wait time, starting from *wait_exponential_multiplier* milliseconds, up to a maximum of *wait_exponential_max* milliseconds
-    def check_email(self):
+    def check_tasks(self):
         try:
             log("checking email")
             self.imap.select(gmail_label)
@@ -769,10 +794,14 @@ class IMAPConnection():
 
                         # save attachment locally
                         log(f"extracted {filename} from email", indent=2)
+                        img_id = get_img_id()
                         if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
                             exif_data = attachement.info.get('exif')
-                            global fpath_org_img
-                            fpath_org_img = os.path.join(curr_dir, 'temp', 'org', filename)
+                            filename = filename.replace(" ", "_")
+                            fpath_org_img = os.path.join(curr_dir, 'imgs', img_id, 'org', filename)
+                            fpath_vis_img = os.path.join(curr_dir, 'imgs', img_id, 'vis', filename)
+                            
+                            Path(os.path.dirname(fpath_org_img)).mkdir(parents=True, exist_ok=True)
                             if exif_data is not None:
                                 log(f"saved image to {fpath_org_img} with exif data", indent=2)
                                 attachement.save(fpath_org_img, exif=exif_data)
@@ -797,10 +826,18 @@ class IMAPConnection():
                                     exif_bytes = piexif.dump(exif_dict)
 
                                     # replace original image with exif image
-                                    image2G.save(fpath_org_img, "jpeg", exif=exif_bytes)                                    
-
-                            # send to inference
-                            predict_single_image(filename, attachement, camera_id, project_name)
+                                    image2G.save(fpath_org_img, "jpeg", exif=exif_bytes)   
+                            
+                            # add row to CSV file
+                            update_admin_csv({'img_id': img_id,
+                                              'full_path_org': fpath_org_img,
+                                              'full_path_vis': fpath_vis_img,
+                                              'url': f"{url_prefix}{img_id_suffix}",
+                                              'filename': filename,
+                                              'project_name': project_name,
+                                              'camera_id': camera_id,
+                                              'analysed': False,
+                                              'inference_retry_count': 0})
 
                         # attachment is not an image
                         else:
@@ -812,6 +849,7 @@ class IMAPConnection():
                                 for k, v in daily_report_dict.items():
                                     log(f"{k} : {v}", indent = 3)
                                 add_dict_to_csv(daily_report_dict, fpath_daily_report_csv)
+                                # TODO: add to daily report CSV
 
         # retry if something blocks the connection
         except Exception as e:
@@ -819,10 +857,46 @@ class IMAPConnection():
             log(f"\n\nerror: {e}")
             log(f"traceback: {traceback.print_exc()}\n\n")
             raise
+        
+        # loop thourgh csv and check which images need to be analysed
+        with open(admin_csv, 'r') as csv_file:
+            csv_reader = csv.DictReader(csv_file)
+            for row in csv_reader:
+                if row['analysed'] == 'False':
+                    log(f"analysing image: {img_id}")
+                    img_id = row['img_id']
+                    full_path_org = row['full_path_org']
+                    full_path_vis = row['full_path_vis']
+                    filename = row['filename']
+                    camera_id = row['camera_id']
+                    project_name = row['project_name']
+                    inference_retry_count = int(row['inference_retry_count'])
+                    
+                    try:
+                        if inference_retry_count <= 3:
+                            log(f"running inference on image '{filename}'", indent = 2)
+                            predict_bool = predict_single_image(filename, full_path_org, full_path_vis, camera_id, project_name)
+                            if predict_bool:
+                                update_admin_csv({'img_id': img_id,
+                                                'analysed': True})
+                    except Exception as e:
+                        log(f"an error occurred. Could not run inference on image '{filename}' because '{e}'", indent = 2)
+                        log(f"traceback: {traceback.print_exc()}", indent = 2)
+                        inference_retry_count = inference_retry_count + 1
+                        update_admin_csv({'img_id': img_id,
+                                          'inference_retry_count': inference_retry_count})
+                        if inference_retry_count > 3:
+                            log(f"maximum retries exceeded. Skipping image '{filename}'", indent = 2)
+                            update_admin_csv({'img_id': img_id,
+                                              'analysed': True})
+
+# get unique string
+def get_img_id():
+    return str(datetime.datetime.now().strftime('%Y%m%d') + "-" + str(uuid.uuid4())[:5])
 
 # send whatsapp message
-def send_whatsapp(detection_payload, fpath_vis_img):
-
+def send_whatsapp(detection_payload, full_path_vis):
+    
     # upload image to imgbb
     if use_imgbb:
 
@@ -834,7 +908,6 @@ def send_whatsapp(detection_payload, fpath_vis_img):
         }
         res = requests.post(url, imgbb_payload)
         upload_report = res.json()
-        # print(json.dumps(upload_report, indent = 2))
         log("uploaded to imgbb", indent = 3)
     
         # check if it worked
@@ -845,19 +918,17 @@ def send_whatsapp(detection_payload, fpath_vis_img):
             img_id_suffix = upload_report["data"]["url"].replace('https://i.ibb.co/', '')
             log(f"retrieved img url suffix {img_id_suffix}", indent = 3)
     
-    # on ubuntu server we don't need imgBB but place the file in a file sharing folder
+    # on ubuntu server we don't need imgBB but will place the img in the file server
     else:
-        print(json.dumps({k: v for k, v in detection_payload.items() if k != "image"}, indent=2)) # DEBUG
         
-        img = detection_payload["image"]
-        
-        print(f"type(img): {type(img)}") # DEBUG
-        
-        shutil.copy(fpath_vis_img, '/Users/peter/Desktop/temp-folder')
-        
-        img_id_suffix = "hCJGHsD/8a0ec573b5ac.jpg" # DEBUG
-        
-        exit() # DEBUG
+        # move the image to the file server
+        src = full_path_vis
+        img_id_suffix = os.sep.join(src.split(os.sep)[-3:])
+        dst = os.path.join('/usr/share/nginx/files/images/', img_id_suffix)
+        dst_dir = os.path.dirname(dst)
+        if not os.path.exists(dst_dir):
+            subprocess.run(['sudo', 'mkdir', '-p', dst_dir], check=True)
+        subprocess.run(['sudo', 'cp', src, dst], check=True)
 
     # set vars to be passed on to the whatsapp template
     # https://console.twilio.com/us1/develop/sms/content-template-builder
@@ -868,9 +939,9 @@ def send_whatsapp(detection_payload, fpath_vis_img):
         '4': str(sep_date_time(detection_payload["timestamp"])[1]), # time string
         '5': str(sep_date_time(detection_payload["timestamp"])[0]), # date string
         '6': "GPS not set" if detection_payload["gps_link"] == "" else str(detection_payload["gps_link"]), # location url
-        '7': img_id_suffix # img url suffix to be placed behind "https://i.ibb.co/"
+        '7': img_id_suffix # img url suffix to be placed behind the base url
         })
-    
+              
     # get a list of whatsapp receivers
     whatsapp_receivers = []
     for receiver_info in all_project_settings[detection_payload["project_name"]]["whatsapp_receivers"]:
@@ -895,7 +966,6 @@ def send_whatsapp(detection_payload, fpath_vis_img):
 # retry *stop_max_attempt_number* times with an exponentially increasing wait time, starting from *wait_exponential_multiplier* milliseconds, up to a maximum of *wait_exponential_max* milliseconds
 def send_whatsapp_via_twilio(content_vars, whatsapp_receivers):
     try:
-        twilio_content_template_SID = 'HX08bef972801451a6d736962cef6b39d0' # DEBUG TODO: dit moet in de config staan als het ubuntu is
         for number, friendly_name in whatsapp_receivers:
             message = twilio_client.messages.create(
                 content_sid=twilio_content_template_SID,
@@ -1177,6 +1247,7 @@ def log(string, indent = 0, end = '\n'):
     timestamp = datetime.datetime.now().replace(microsecond=0)
     indent_str = '    ' * indent
     msg = f"{timestamp} {indent_str}- {string}"
+    Path(os.path.dirname(fpath_log_file)).mkdir(parents=True, exist_ok=True)
     with open(fpath_log_file, 'a+') as f:
         f.write(f"{msg}\n")
     print(msg, end = end)
@@ -1365,8 +1436,8 @@ def fetch_device():
     return device
 
 # get exif fields
-def fetch_img_exif():
-    with Image.open(fpath_org_img) as img:
+def fetch_img_exif(full_path):
+    with Image.open(full_path) as img:
         log("fetching image exif data", indent = 2)
         dct = {}
         exif_data = img.info.get('exif')
@@ -1400,13 +1471,13 @@ def fetch_img_exif():
     return dct
 
 # get gps info
-def fetch_lat_lon():   
+def fetch_lat_lon(full_path):   
     try:
-        gpsinfo = gpsphoto.getGPSData(fpath_org_img)
+        gpsinfo = gpsphoto.getGPSData(full_path)
         log(f"succeeded to fetch gps from metadata lat {gpsinfo['Latitude']} lon {gpsinfo['Longitude']}", indent = 2)
     except:
         log(f"could not fetch gps from metadata, proceeding to read from text", indent = 2)
-        lat, lon = read_gps_text_from_image(fpath_org_img)
+        lat, lon = read_gps_text_from_image(full_path)
         if lat == 0. and lon == 0.:
             log(f"could not fetch ggpssp from text, proceeding with lat 0.0 lon 0.0", indent = 2)
         else:
@@ -1459,6 +1530,48 @@ def add_detection(dict, key, value):
     dict[key].append(value)
     return dict
 
+# initialise the administration csv
+def init_admin_csv():
+    global admin_csv
+    headers = ['img_id', 'full_path_org', 'full_path_vis', 'url', 'filename',
+               'project_name', 'camera_id', 'analysed', 'inference_retry_count']
+    with open(admin_csv, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(headers)
+
+# update information in the admin csv
+def update_admin_csv(new_data):
+    global admin_csv
+    rows = []
+    row_exists = False
+    
+    # read
+    with open(admin_csv, 'r', newline='') as csvfile:
+        reader = csv.DictReader(csvfile)
+        headers = reader.fieldnames
+        
+        for row in reader:
+            if row['img_id'] == new_data['img_id']:
+                row_exists = True
+                
+                # update
+                for key, value in new_data.items():
+                    if key in row:
+                        row[key] = value
+            rows.append(row)
+    
+    # add
+    if not row_exists:
+        new_row = {header: '' for header in headers}
+        new_row.update(new_data)
+        rows.append(new_row)
+    
+    # write
+    with open(admin_csv, 'w', newline='') as csvfile:
+        writer = csv.DictWriter(csvfile, fieldnames=headers)
+        writer.writeheader()
+        writer.writerows(rows)
+
 ###################################
 ############ MAIN CODE ############
 ###################################
@@ -1480,12 +1593,9 @@ def run_script():
         mail_obj = IMAPConnection()
         mail_obj.login()
 
-        # make sure there is are no leftover files from previous session
-        remove_temp_files()
-
         # check mail with infinite loop
         while True:
-            mail_obj.check_email()
+            mail_obj.check_tasks()
             time.sleep(7)
         
     except Exception as e:
@@ -1525,6 +1635,12 @@ def run_script():
 
 # initially run the script
 if __name__ == "__main__":
+    
+    # make sure the admin csv is initialized
+    if not os.path.isfile(admin_csv):
+        init_admin_csv()   
+    
+    # run the script
     run_script()
 
 
