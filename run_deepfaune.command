@@ -5,6 +5,7 @@ ROOT_DIR=${1}
 CONDA_DIR=${2}
 CLS_THRESH=${3}
 ECO_PATH=${4}
+IMG_DIR=${5}
 
 # set MPS functionality for silicon computing
 if [ "$(uname)" == "Darwin" ]; then
@@ -18,7 +19,7 @@ cd "${ROOT_DIR}"
 BS_ENV="${CONDA_DIR}/envs/ecoassistcondaenv-base"
 DF_ENV="${CONDA_DIR}/envs/ecoassistcondaenv-pytorch"
 MODEL_PATH="${ROOT_DIR}/models/deepfaune/deepfaune-vit_large_patch14_dinov2.lvd142m.pt"
-JSON_PATH="${ROOT_DIR}/temp/org/image_recognition_file.json"
+JSON_PATH="${IMG_DIR}/image_recognition_file.json"
 
 # activate conda env for classification
 source "${CONDA_DIR}/etc/profile.d/conda.sh"
