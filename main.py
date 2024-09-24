@@ -926,7 +926,8 @@ def send_whatsapp(detection_payload, full_path_vis, full_path_org):
         # check if it worked
         success = upload_report.get("success", False)
         if not success:
-            print("failed to upload. No whatsapp img. Send without image.") # TODO: iets van een notificatie sturen oid? Wat is de error code?
+            log("failed to upload. No whatsapp img. Send without image.") # TODO: iets van een notificatie sturen oid? Wat is de error code?
+            log(f"upload_report: {upload_report}", indent = 2)
         else:
             img_id_suffix = upload_report["data"]["url"].replace('https://i.ibb.co/', '')
             log(f"retrieved img url suffix {img_id_suffix}", indent = 3)
