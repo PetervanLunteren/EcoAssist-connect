@@ -1587,11 +1587,12 @@ def update_admin_csv(new_data):
         writer.writeheader()
         writer.writerows(rows)
         
-    # copy to shared folder
-    src = admin_csv
-    dst = os.path.join(file_sharing_folder, "admin.csv")
-    subprocess.run(['sudo', 'cp', src, dst], check=True)
-    log(f"copied admin.csv from '{src}' to '{dst}'.", indent=3)
+    # copy to shared folder if on Ubuntu
+    if not use_imgbb:
+        src = admin_csv
+        dst = os.path.join(file_sharing_folder, "admin.csv")
+        subprocess.run(['sudo', 'cp', src, dst], check=True)
+        log(f"copied admin.csv from '{src}' to '{dst}'.", indent=3)
     
 
 ###################################
