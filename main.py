@@ -7,7 +7,6 @@
 # TODO: save daily report in the project folder
 # TODO: adjust the bat files with new img_dir so it works on windows too
 # TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
-# TODO: make script a service on the ubuntu server
 
 ###########################################
 ############ INITIALIZE SCRIPT ############
@@ -1659,20 +1658,10 @@ def run_script():
 # initially run the script
 if __name__ == "__main__":
     
-    # init folder and file structure
+    # init admin cvs if it doesn't exist
     if not os.path.isfile(admin_csv):
         init_admin_csv() 
         log(f"initialised admin csv file at '{admin_csv}'")
-    if not os.path.exists(fpath_project_specification_dir):
-        Path(os.path.dirname(fpath_project_specification_dir)).mkdir(parents=True, exist_ok=True)
-        log(f"created project specification folder at '{fpath_project_specification_dir}'")
-    if not os.path.exists(fpath_output_dir):
-        Path(os.path.dirname(fpath_output_dir)).mkdir(parents=True, exist_ok=True)
-        log(f"created output folder at '{fpath_output_dir}'")
-    md_dir = os.path.join(curr_dir, "models", "megadetector")
-    if not os.path.exists(md_dir):
-        Path(md_dir).mkdir(parents=True, exist_ok=True)
-        log(f"created megadetector folder at '{md_dir}'")
     
     # run the script
     run_script()
