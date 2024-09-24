@@ -8,6 +8,7 @@
 # TODO: adjust the bat files with new img_dir so it works on windows too
 # TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
 # TODO: it saves it at two locations: ~/EcoAssist-connect/imgs/ and in the saher folder. We can remove it from the non-shared location. 
+# TODO: er moet iets van een functie in die ruimte vrij maakt. Ook de logfile moet af en toe ingekort worden. Misschien iedere week alleen de laatste 10.000 regels overhouden oid? Op de windows was ie al 100 MB.
 
 ###########################################
 ############ INITIALIZE SCRIPT ############
