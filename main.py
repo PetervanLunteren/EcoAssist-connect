@@ -1,7 +1,8 @@
 # EcoAssist connect
 # Analyse images in real time and send notifications 
-# Peter van Lunteren, 16 Aug 2024
+# Peter van Lunteren, 15 Mar 2024
 
+# TODO: put admin csv, project csv's, etc etc in fixed folders so I can quickly download them via url
 # TODO: add the species alias code in here (works on windows)
 # TODO: make folder stucture every time the script is run (temp folder, output folder, etc)
 # TODO: clean saved images every week after the report is sent
@@ -120,6 +121,7 @@ url_prefix_linux = config['url_prefix_linux']
 url_prefix_windows = config['url_prefix_windows']
 url_prefix = url_prefix_windows if osys == "windows" else url_prefix_macos if osys == "macos" else url_prefix_linux
 save_images = config['save_images']
+file_sharing_folder = config['file_sharing_folder']
 
 # gmail 
 gmail_label = config['gmail_label']
@@ -182,6 +184,10 @@ def import_project_settings():
         species_presence_df = pd.read_excel(project_specification_xslx, sheet_name='species_presence')
         species_presence_dict = species_presence_df.set_index('class')['present'].to_dict()
         settings_dict["species_presence"] = species_presence_dict
+
+        # read alias species names
+        species_alias_dict = species_presence_df.set_index('class')['alias'].to_dict()
+        settings_dict["species_alias"] = species_alias_dict
 
         # get list of camera IMEI numbers in use for this project
         cameras_in_use_df = pd.read_excel(project_specification_xslx, sheet_name='cameras_in_use')
@@ -502,6 +508,9 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
     detection_threshold = all_project_settings[project_name]["detection_threshold"]
     classification_threshold = all_project_settings[project_name]["classification_threshold"]
 
+    # get species alias names
+    species_alias = all_project_settings[project_name]["species_alias"]
+
     # get project preferences
     blur_people_bool = all_project_settings[project_name].get("blur_people", True)
 
@@ -536,13 +545,15 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
         detections_dict = {}
         if 'detections' in image:
             for detection in image['detections']:
-                det_label = label_map.get(detection['category'], "unknown")
+                det_label_original = label_map.get(detection['category'], "unknown")  # the original label
+                det_label = species_alias.get(det_label_original, det_label_original) # the set alias for this species
                 value = {"conf" : detection['conf'], "bbox" : detection['bbox']}
                 add_detection(detections_dict, det_label, value)
 
     # if nothing is detected add dummy detection so that people can receive a notification if required
     if detections_dict == {}:
-        log(f"detected no objects", indent = 2)
+        log(f"detected no objects labelled as empty image", indent = 2)
+        det_label_original = "empty"
         detections_dict["empty"] = [{'conf': 0, 'bbox': [0, 0, 0, 0]}]
     
     # image specific metadata
@@ -590,6 +601,7 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
             "image" : convert_to_base64(full_path_vis),
             "camera_make" : exif.get('Make', "unknown"),
             "camera_model" : exif.get('Model', "unknown"),
+            "original_label": det_label_original,
             "detection" : label,
             "project_name" : project_name,
             "detection_number" : int(count),
@@ -755,7 +767,7 @@ class IMAPConnection():
                 message_ids = messages[0].split()
                 if message_ids:
                     # loop through all unread emails
-                    log(f"found {len(message_ids)} new email(s)", indent=1)
+                    log(f"found {len(message_ids)} new email(s)", indent=1, new_line=True)
                     for i, msg_id in enumerate(message_ids):
 
                         # read email
@@ -829,6 +841,7 @@ class IMAPConnection():
                                     image2G.save(fpath_org_img, "jpeg", exif=exif_bytes)   
                             
                             # add row to CSV file
+                            img_id_suffix = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
                             update_admin_csv({'img_id': img_id,
                                               'full_path_org': fpath_org_img,
                                               'full_path_vis': fpath_vis_img,
@@ -863,7 +876,7 @@ class IMAPConnection():
             csv_reader = csv.DictReader(csv_file)
             for row in csv_reader:
                 if row['analysed'] == 'False':
-                    log(f"analysing image: {img_id}")
+                    log(f"analysing image: {img_id}", new_line = True)
                     img_id = row['img_id']
                     full_path_org = row['full_path_org']
                     full_path_vis = row['full_path_vis']
@@ -913,7 +926,7 @@ def send_whatsapp(detection_payload, full_path_vis):
         # check if it worked
         success = upload_report.get("success", False)
         if not success:
-            print("failed to upload. No whatsapp img. Send without image.") # TODO
+            print("failed to upload. No whatsapp img. Send without image.") # TODO: iets van een notificatie sturen oid? Wat is de error code?
         else:
             img_id_suffix = upload_report["data"]["url"].replace('https://i.ibb.co/', '')
             log(f"retrieved img url suffix {img_id_suffix}", indent = 3)
@@ -924,7 +937,7 @@ def send_whatsapp(detection_payload, full_path_vis):
         # move the image to the file server
         src = full_path_vis
         img_id_suffix = os.sep.join(src.split(os.sep)[-3:])
-        dst = os.path.join('/usr/share/nginx/files/images/', img_id_suffix)
+        dst = os.path.join(file_sharing_folder, img_id_suffix)
         dst_dir = os.path.dirname(dst)
         if not os.path.exists(dst_dir):
             subprocess.run(['sudo', 'mkdir', '-p', dst_dir], check=True)
@@ -949,7 +962,7 @@ def send_whatsapp(detection_payload, full_path_vis):
         friendly_name = receiver_info['friendly_name']
 
         # check if this receiver wants to get notified on this detection
-        if receiver_info['selected_notifications'][str(detection_payload["detection"])]:
+        if receiver_info['selected_notifications'][str(detection_payload["original_label"])]:
             log(f"{friendly_name} ({number}) does want to get notified for class '{detection_payload['detection']}'", indent=3)
             whatsapp_receivers.append([number, friendly_name])
         else:
@@ -1243,10 +1256,11 @@ def add_dict_to_csv(data_dict, csv_file_path):
         writer.writerow(data_dict)
 
 # log to file and to console
-def log(string, indent = 0, end = '\n'):
+def log(string, indent = 0, end = '\n', new_line = False):
     timestamp = datetime.datetime.now().replace(microsecond=0)
     indent_str = '    ' * indent
-    msg = f"{timestamp} {indent_str}- {string}"
+    new_line_str = '\n' if new_line else ''
+    msg = f"{new_line_str}{timestamp} {indent_str}- {string}"
     Path(os.path.dirname(fpath_log_file)).mkdir(parents=True, exist_ok=True)
     with open(fpath_log_file, 'a+') as f:
         f.write(f"{msg}\n")
