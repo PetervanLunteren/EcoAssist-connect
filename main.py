@@ -61,11 +61,11 @@ curr_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(curr_dir)
 
 # init vars
-# fpath_vis_img = os.path.join(curr_dir, 'temp', 'vis', 'visualized.jpg')
+# fpath_vis_img = os.path.join(curr_dir, 'temp', 'vis', 'visualized.jpg') # DEBUG
 fpath_output_dir = os.path.join(curr_dir, 'output')
 fpath_log_file = os.path.join(fpath_output_dir, 'log.txt')
-fpath_daily_report_csv = os.path.join(fpath_output_dir, 'daily_output.csv')
-fpath_observations_csv = os.path.join(fpath_output_dir, 'results_detections.csv')
+# fpath_daily_report_csv = os.path.join(fpath_output_dir, 'daily_output.csv') # DEBUG
+# fpath_observations_csv = os.path.join(fpath_output_dir, 'results_detections.csv')
 fpath_project_specification_dir = os.path.join(curr_dir, 'settings')
 fpath_deepfaune_variables_json = os.path.join(curr_dir, 'models', 'deepfaune', 'variables.json')
 admin_csv = os.path.join(curr_dir, "admin.csv")
@@ -862,7 +862,10 @@ class IMAPConnection():
                                 log(f"parsed daily report as", indent=2)
                                 for k, v in daily_report_dict.items():
                                     log(f"{k} : {v}", indent = 3)
-                                add_dict_to_csv(daily_report_dict, fpath_daily_report_csv)
+                                project_name = retrieve_project_name_from_imei(daily_report_dict['IMEI'])
+                                dst_csv = os.path.join(fpath_output_dir, project_name, "daily_reports.csv")
+                                Path(os.path.dirname(dst_csv)).mkdir(parents=True, exist_ok=True)
+                                add_dict_to_csv(daily_report_dict, dst_csv)
                                 # TODO: add to daily report CSV
 
         # retry if something blocks the connection
