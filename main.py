@@ -61,11 +61,8 @@ curr_dir = os.path.dirname(os.path.abspath(__file__))
 os.chdir(curr_dir)
 
 # init vars
-# fpath_vis_img = os.path.join(curr_dir, 'temp', 'vis', 'visualized.jpg') # DEBUG
 fpath_output_dir = os.path.join(curr_dir, 'output')
 fpath_log_file = os.path.join(fpath_output_dir, 'log.txt')
-# fpath_daily_report_csv = os.path.join(fpath_output_dir, 'daily_output.csv') # DEBUG
-# fpath_observations_csv = os.path.join(fpath_output_dir, 'results_detections.csv')
 fpath_project_specification_dir = os.path.join(curr_dir, 'settings')
 fpath_deepfaune_variables_json = os.path.join(curr_dir, 'models', 'deepfaune', 'variables.json')
 admin_csv = os.path.join(curr_dir, "admin.csv")
@@ -121,6 +118,7 @@ url_prefix_windows = config['url_prefix_windows']
 url_prefix = url_prefix_windows if osys == "windows" else url_prefix_macos if osys == "macos" else url_prefix_linux
 save_images = config['save_images']
 file_sharing_folder = config['file_sharing_folder']
+camera_id_imei_label_map = config['camera_id_imei_label_map']
 
 # gmail 
 gmail_label = config['gmail_label']
@@ -717,18 +715,6 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
 
     return True
 
-# # refresh folder and remove temporary files # DEBUG depreciated
-# def remove_temp_files():
-#     temp_dirs = ['vis', 'org']
-#     for temp_dir in temp_dirs:
-#         root_dir = os.path.join(curr_dir, 'temp', temp_dir)
-#         files = os.listdir(root_dir)
-#         for file in files:
-#             file_path = os.path.join(root_dir, file)
-#             if os.path.isfile(file_path):
-#                 os.remove(file_path)
-#                 log(f"removed temporary file {file_path}", indent = 2)
-
 # find out to which project the camera belongs to
 def retrieve_project_name_from_imei(input_imei):
     for project_name, project_settings in all_project_settings.items():
@@ -736,10 +722,6 @@ def retrieve_project_name_from_imei(input_imei):
             str(input_imei) in project_settings["cameras_in_use"]:
             log(f"found imei '{input_imei}' listed under project '{project_name}'", indent = 2)
             return project_name
-
-# convert image from base64
-# def convert_from_base64(base64_string):
-#     return base64.b64decode(base64_string)
 
 # gmail checker with retry functionality
 class IMAPConnection():
@@ -779,9 +761,32 @@ class IMAPConnection():
 
                         # find out which project it is
                         imei_number = filename.split("-", 1)[0]
-                        if imei_number == 'VELUWE HANS ': # DEBUG TODO: dit even snel gedaan omdat de nieuwe camera's niet de IMEI in de filename doen. Even uitzoeken hoe we dit willen doen. Misschien dan toch maar srteren op camID? 
-                            imei_number = '860946062360345'
-                        project_name = retrieve_project_name_from_imei(imei_number)
+                        try:
+                            project_name = retrieve_project_name_from_imei(imei_number)
+                        except ValueError as e:
+                            log("ValueError when trying to retrieve project name from imei number", indent=2)
+                            log(f"error: {e}", indent = 2)
+                            
+                            # some older camera models dont have the IMEI in the filename, so try to retrieve from the camera_id_imei_label_map
+                            log(f"checking if imei is reported in camera_id_imei_label_map", indent = 2)
+                            if imei_number in camera_id_imei_label_map: 
+                                imei_number = camera_id_imei_label_map[imei_number]
+                                log(f"it is indeed reported in camera_id_imei_label_map - fetching here", indent = 2)
+
+                            # try again
+                            try:
+                                project_name = retrieve_project_name_from_imei(imei_number)
+                            except ValueError as e:
+                                log("ValueError when trying to retrieve project name from imei number", indent=2)
+                                log(f"error: {e}", indent = 2)
+                                
+                                # the daily reports of the same older camera models have the IMEI in the body of the email if it is a daily report
+                                log(f"checking if daily report", indent = 2)
+                                if "DailyReport" in filename:
+                                    log(f"it is indeed a daily report - fetching imei from body", indent = 2)
+                                    imei_number = parse_txt_file(attachement).get('IMEI', None)
+                                    project_name = retrieve_project_name_from_imei(imei_number)
+
                         if project_name is None:
                             log(f"could not retrieve project name from imei number '{imei_number}'", indent=2)
                             return
@@ -866,7 +871,6 @@ class IMAPConnection():
                                 dst_csv = os.path.join(fpath_output_dir, project_name, "daily_reports.csv")
                                 Path(os.path.dirname(dst_csv)).mkdir(parents=True, exist_ok=True)
                                 add_dict_to_csv(daily_report_dict, dst_csv)
-                                # TODO: add to daily report CSV
 
         # retry if something blocks the connection
         except Exception as e:
