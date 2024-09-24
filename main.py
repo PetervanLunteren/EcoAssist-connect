@@ -7,6 +7,7 @@
 # TODO: save daily report in the project folder
 # TODO: adjust the bat files with new img_dir so it works on windows too
 # TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
+# TODO: it saves it at two locations: ~/EcoAssist-connect/imgs/ and in the saher folder. We can remove it from the non-shared location. 
 
 ###########################################
 ############ INITIALIZE SCRIPT ############
