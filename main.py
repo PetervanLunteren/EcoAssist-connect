@@ -1,6 +1,6 @@
 # EcoAssist connect
 # Analyse images in real time and send notifications 
-# Peter van Lunteren, 15 Mar 2024
+# Peter van Lunteren, 24 Sept 2024
 
 # TODO: put admin csv, project csv's, etc etc in fixed folders so I can quickly download them via url
 # TODO: add the species alias code in here (works on windows)
@@ -623,7 +623,7 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
         # send detection to whatsapp numbers
         if all_project_settings[project_name]["whatsapp_receivers"]:
             log(f"initiating whatsapp service", indent = 3)
-            send_whatsapp(detection_payload, full_path_vis)
+            send_whatsapp(detection_payload, full_path_vis, full_path_org)
         
         # send email
         if all_project_settings[project_name]["email_receivers"]:
@@ -841,11 +841,14 @@ class IMAPConnection():
                                     image2G.save(fpath_org_img, "jpeg", exif=exif_bytes)   
                             
                             # add row to CSV file
-                            img_id_suffix = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
+                            # img_id_suffix = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:]) # DEBUG
+                            img_id_suffix_org = "<NA>" if use_imgbb else os.sep.join(fpath_org_img.split(os.sep)[-3:])
+                            img_id_suffix_vis = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
                             update_admin_csv({'img_id': img_id,
                                               'full_path_org': fpath_org_img,
                                               'full_path_vis': fpath_vis_img,
-                                              'url': f"{url_prefix}{img_id_suffix}",
+                                              'url_org': f"{url_prefix}{img_id_suffix_org}",
+                                              'url_vis': f"{url_prefix}{img_id_suffix_vis}",
                                               'filename': filename,
                                               'project_name': project_name,
                                               'camera_id': camera_id,
@@ -908,7 +911,7 @@ def get_img_id():
     return str(datetime.datetime.now().strftime('%Y%m%d') + "-" + str(uuid.uuid4())[:5])
 
 # send whatsapp message
-def send_whatsapp(detection_payload, full_path_vis):
+def send_whatsapp(detection_payload, full_path_vis, full_path_org):
     
     # upload image to imgbb
     if use_imgbb:
@@ -934,14 +937,15 @@ def send_whatsapp(detection_payload, full_path_vis):
     # on ubuntu server we don't need imgBB but will place the img in the file server
     else:
         
-        # move the image to the file server
-        src = full_path_vis
-        img_id_suffix = os.sep.join(src.split(os.sep)[-3:])
-        dst = os.path.join(file_sharing_folder, img_id_suffix)
-        dst_dir = os.path.dirname(dst)
-        if not os.path.exists(dst_dir):
-            subprocess.run(['sudo', 'mkdir', '-p', dst_dir], check=True)
-        subprocess.run(['sudo', 'cp', src, dst], check=True)
+        # move both the original and the visualised image to the file server
+        for src in [full_path_org, full_path_vis]:
+        # src = full_path_vis # DEBUG
+            img_id_suffix = os.sep.join(src.split(os.sep)[-3:])
+            dst = os.path.join(file_sharing_folder, img_id_suffix)
+            dst_dir = os.path.dirname(dst)
+            if not os.path.exists(dst_dir):
+                subprocess.run(['sudo', 'mkdir', '-p', dst_dir], check=True)
+            subprocess.run(['sudo', 'cp', src, dst], check=True)
 
     # set vars to be passed on to the whatsapp template
     # https://console.twilio.com/us1/develop/sms/content-template-builder
@@ -1547,7 +1551,7 @@ def add_detection(dict, key, value):
 # initialise the administration csv
 def init_admin_csv():
     global admin_csv
-    headers = ['img_id', 'full_path_org', 'full_path_vis', 'url', 'filename',
+    headers = ['img_id', 'full_path_org', 'full_path_vis', 'url_org', 'url_vis', 'filename',
                'project_name', 'camera_id', 'analysed', 'inference_retry_count']
     with open(admin_csv, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
@@ -1585,6 +1589,13 @@ def update_admin_csv(new_data):
         writer = csv.DictWriter(csvfile, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
+        
+    # copy to shared folder
+    src = admin_csv
+    dst = os.path.join(file_sharing_folder, "admin.csv")
+    subprocess.run(['sudo', 'cp', src, dst], check=True)
+    log(f"copied admin.csv from '{src}' to '{dst}'.", indent=3)
+    
 
 ###################################
 ############ MAIN CODE ############
@@ -1650,9 +1661,10 @@ def run_script():
 # initially run the script
 if __name__ == "__main__":
     
-    # make sure the admin csv is initialized
+    # make sure the admin csv is initialized 
     if not os.path.isfile(admin_csv):
         init_admin_csv()   
+        print("initialised admin csv") # DEBUG
     
     # run the script
     run_script()
