@@ -3,11 +3,9 @@
 # Peter van Lunteren, 24 Sept 2024
 
 # TODO: put admin csv, project csv's, etc etc in fixed folders so I can quickly download them via url
-# TODO: add the species alias code in here (works on windows)
-# TODO: make folder stucture every time the script is run (temp folder, output folder, etc)
 # TODO: clean saved images every week after the report is sent
 # TODO: save daily report in the project folder
-# TODO: adjust the bat files with new img_dir
+# TODO: adjust the bat files with new img_dir so it works on windows too
 # TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
 # TODO: make script a service on the ubuntu server
 
@@ -64,9 +62,10 @@ os.chdir(curr_dir)
 
 # init vars
 # fpath_vis_img = os.path.join(curr_dir, 'temp', 'vis', 'visualized.jpg')
-fpath_log_file = os.path.join(curr_dir, 'output', 'log.txt')
-fpath_daily_report_csv = os.path.join(curr_dir, 'output', 'daily_output.csv')
-fpath_observations_csv = os.path.join(curr_dir, 'output', 'results_detections.csv')
+fpath_output_dir = os.path.join(curr_dir, 'output')
+fpath_log_file = os.path.join(fpath_output_dir, 'log.txt')
+fpath_daily_report_csv = os.path.join(fpath_output_dir, 'daily_output.csv')
+fpath_observations_csv = os.path.join(fpath_output_dir, 'results_detections.csv')
 fpath_project_specification_dir = os.path.join(curr_dir, 'settings')
 fpath_deepfaune_variables_json = os.path.join(curr_dir, 'models', 'deepfaune', 'variables.json')
 admin_csv = os.path.join(curr_dir, "admin.csv")
@@ -670,7 +669,7 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
                     log(f"{earthranger_friendly_name} ({earthranger_post_server}) does not want to get pushed for class '{detection_payload['detection']}'", indent=3)
     
     # save observations to in CSVs
-    dst_dir = os.path.join(curr_dir, "output", project_name)
+    dst_dir = os.path.join(fpath_output_dir, project_name)
     Path(dst_dir).mkdir(parents=True, exist_ok=True)
     postprocess(src_dir = img_dir, 
                 dst_dir = dst_dir,
@@ -687,7 +686,7 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
     
     if save_images:
         # save the visualised images
-        dst_dir = os.path.join(curr_dir, "output", project_name, "saved_imgs", "vis")
+        dst_dir = os.path.join(fpath_output_dir, project_name, "saved_imgs", "vis")
         Path(dst_dir).mkdir(parents=True, exist_ok=True)
         postprocess(src_dir = img_dir,
                     dst_dir = dst_dir,
@@ -702,7 +701,7 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
                     data_type = "img")
 
         # save the original images
-        dst_dir = os.path.join(curr_dir, "output", project_name, "saved_imgs", "org")
+        dst_dir = os.path.join(fpath_output_dir, project_name, "saved_imgs", "org")
         Path(dst_dir).mkdir(parents=True, exist_ok=True)
         postprocess(src_dir = img_dir,
                     dst_dir = dst_dir,
@@ -718,17 +717,17 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
 
     return True
 
-# refresh folder and remove temporary files
-def remove_temp_files():
-    temp_dirs = ['vis', 'org']
-    for temp_dir in temp_dirs:
-        root_dir = os.path.join(curr_dir, 'temp', temp_dir)
-        files = os.listdir(root_dir)
-        for file in files:
-            file_path = os.path.join(root_dir, file)
-            if os.path.isfile(file_path):
-                os.remove(file_path)
-                log(f"removed temporary file {file_path}", indent = 2)
+# # refresh folder and remove temporary files # DEBUG depreciated
+# def remove_temp_files():
+#     temp_dirs = ['vis', 'org']
+#     for temp_dir in temp_dirs:
+#         root_dir = os.path.join(curr_dir, 'temp', temp_dir)
+#         files = os.listdir(root_dir)
+#         for file in files:
+#             file_path = os.path.join(root_dir, file)
+#             if os.path.isfile(file_path):
+#                 os.remove(file_path)
+#                 log(f"removed temporary file {file_path}", indent = 2)
 
 # find out to which project the camera belongs to
 def retrieve_project_name_from_imei(input_imei):
@@ -841,7 +840,6 @@ class IMAPConnection():
                                     image2G.save(fpath_org_img, "jpeg", exif=exif_bytes)   
                             
                             # add row to CSV file
-                            # img_id_suffix = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:]) # DEBUG
                             img_id_suffix_org = "<NA>" if use_imgbb else os.sep.join(fpath_org_img.split(os.sep)[-3:])
                             img_id_suffix_vis = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
                             update_admin_csv({'img_id': img_id,
@@ -939,13 +937,13 @@ def send_whatsapp(detection_payload, full_path_vis, full_path_org):
         
         # move both the original and the visualised image to the file server
         for src in [full_path_org, full_path_vis]:
-        # src = full_path_vis # DEBUG
             img_id_suffix = os.sep.join(src.split(os.sep)[-3:])
             dst = os.path.join(file_sharing_folder, img_id_suffix)
             dst_dir = os.path.dirname(dst)
             if not os.path.exists(dst_dir):
                 subprocess.run(['sudo', 'mkdir', '-p', dst_dir], check=True)
             subprocess.run(['sudo', 'cp', src, dst], check=True)
+            log(f"copied '{src}' to '{dst}'", indent = 3)
 
     # set vars to be passed on to the whatsapp template
     # https://console.twilio.com/us1/develop/sms/content-template-builder
@@ -1661,10 +1659,20 @@ def run_script():
 # initially run the script
 if __name__ == "__main__":
     
-    # make sure the admin csv is initialized 
+    # init folder and file structure
     if not os.path.isfile(admin_csv):
-        init_admin_csv()   
-        print("initialised admin csv") # DEBUG
+        init_admin_csv() 
+        log(f"initialised admin csv file at '{admin_csv}'")
+    if not os.path.exists(fpath_project_specification_dir):
+        Path(os.path.dirname(fpath_project_specification_dir)).mkdir(parents=True, exist_ok=True)
+        log(f"created project specification folder at '{fpath_project_specification_dir}'")
+    if not os.path.exists(fpath_output_dir):
+        Path(os.path.dirname(fpath_output_dir)).mkdir(parents=True, exist_ok=True)
+        log(f"created output folder at '{fpath_output_dir}'")
+    md_dir = os.path.join(curr_dir, "models", "megadetector")
+    if not os.path.exists(md_dir):
+        Path(md_dir).mkdir(parents=True, exist_ok=True)
+        log(f"created megadetector folder at '{md_dir}'")
     
     # run the script
     run_script()
