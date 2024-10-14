@@ -589,7 +589,7 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
             bottom = int(round(detection['bbox'][3] * img_height)) + top
             bb.add(image_to_vis, left, top, right, bottom, f'{label} {detection["conf"]}', "red")
             det_label_original = detection['det_label_original']
-        filename_vis = os.path.splitext(filename)[0] + f"-vis-{label.replace(" ", "-")}" + os.path.splitext(filename)[1]
+        filename_vis = os.path.splitext(filename)[0] + f"-vis-{label.replace(' ', '-')}" + os.path.splitext(filename)[1]
         full_path_vis = os.path.join(os.path.dirname(full_path_org), filename_vis)
         cv2.imwrite(full_path_vis, image_to_vis)
         log(f"saved visualised image to {full_path_vis}", indent = 3)
