@@ -66,7 +66,8 @@ fpath_output_dir = os.path.join(curr_dir, 'output')
 fpath_log_file = os.path.join(fpath_output_dir, 'log.txt')
 fpath_project_specification_dir = os.path.join(curr_dir, 'settings')
 fpath_deepfaune_variables_json = os.path.join(curr_dir, 'models', 'deepfaune', 'variables.json')
-admin_csv = os.path.join(curr_dir, "admin.csv")
+admin_files_csv = os.path.join(curr_dir, "admin_files.csv")
+# admin_detections_csv = os.path.join(curr_dir, "admin_detections.csv") DEBUG
 
 # if the connection to gmail fails, it will retry with the following params
 # retry *stop_max_attempt_number* times with an exponentially
@@ -498,7 +499,8 @@ def blur_box(image_path, width, height, bbox):
     log(f"blurred image saved", indent = 2)
 
 # predict on single image
-def predict_single_image(filename, full_path_org, full_path_vis, camera_id, project_name):
+# def predict_single_image(filename, full_path_org, full_path_vis, camera_id, project_name): # DEBUG
+def predict_single_image(filename, full_path_org, camera_id, project_name):
     log(f"running inference", indent = 2)
 
     # get project specific thresholds
@@ -517,7 +519,7 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
     
     # init vars
     img_dir = os.path.dirname(full_path_org)
-    Path(os.path.dirname(full_path_vis)).mkdir(parents=True, exist_ok=True)
+    # Path(os.path.dirname(full_path_vis)).mkdir(parents=True, exist_ok=True)
 
     # run megadetector
     log("running megadetector", indent = 2)
@@ -545,8 +547,10 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
             for detection in image['detections']:
                 det_label_original = label_map.get(detection['category'], "unknown")  # the original label
                 det_label = species_alias.get(det_label_original, det_label_original) # the set alias for this species
-                value = {"conf" : detection['conf'], "bbox" : detection['bbox']}
+                value = {"conf" : detection['conf'], "bbox" : detection['bbox'], "det_label_original": det_label_original}
                 add_detection(detections_dict, det_label, value)
+                # print(f"ADDED:") # DEBUG
+                # print(json.dumps(detections_dict, indent = 3)) # DEBUG
 
     # if nothing is detected add dummy detection so that people can receive a notification if required
     if detections_dict == {}:
@@ -577,14 +581,21 @@ def predict_single_image(filename, full_path_org, full_path_vis, camera_id, proj
         # visualize
         log(f"visualising image", indent = 3)
         image_to_vis = cv2.imread(full_path_org)
+        det_label_original = ""
         for detection in detections:
             left = int(round(detection['bbox'][0] * img_width))
             top = int(round(detection['bbox'][1] * img_height))
             right = int(round(detection['bbox'][2] * img_width)) + left
             bottom = int(round(detection['bbox'][3] * img_height)) + top
             bb.add(image_to_vis, left, top, right, bottom, f'{label} {detection["conf"]}', "red")
+            det_label_original = detection['det_label_original']
+        filename_vis = os.path.splitext(filename)[0] + f"-vis-{label}" + os.path.splitext(filename)[1]
+        full_path_vis = os.path.join(os.path.dirname(full_path_org), filename_vis)
         cv2.imwrite(full_path_vis, image_to_vis)
         log(f"saved visualised image to {full_path_vis}", indent = 3)
+        
+        # # log DEBUG
+        # add_row_to_admin_detections_csv(project_name, camera_id, filename, det_label_original, label, count, max_conf, gps, exif)
         
         # structure payload
         detection_payload = {
@@ -815,8 +826,8 @@ class IMAPConnection():
                         if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
                             exif_data = attachement.info.get('exif')
                             filename = filename.replace(" ", "_")
-                            fpath_org_img = os.path.join(curr_dir, 'imgs', img_id, 'org', filename)
-                            fpath_vis_img = os.path.join(curr_dir, 'imgs', img_id, 'vis', filename)
+                            fpath_org_img = os.path.join(curr_dir, 'imgs', img_id, filename)
+                            # fpath_vis_img = os.path.join(curr_dir, 'imgs', img_id, 'vis', filename) # DEBUG
                             
                             Path(os.path.dirname(fpath_org_img)).mkdir(parents=True, exist_ok=True)
                             if exif_data is not None:
@@ -847,12 +858,12 @@ class IMAPConnection():
                             
                             # add row to CSV file
                             img_id_suffix_org = "<NA>" if use_imgbb else os.sep.join(fpath_org_img.split(os.sep)[-3:])
-                            img_id_suffix_vis = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
-                            update_admin_csv({'img_id': img_id,
+                            # img_id_suffix_vis = "<NA>" if use_imgbb else os.sep.join(fpath_vis_img.split(os.sep)[-3:])
+                            update_admin_files_csv({'img_id': img_id,
                                               'full_path_org': fpath_org_img,
-                                              'full_path_vis': fpath_vis_img,
+                                            #   'full_path_vis': fpath_vis_img, # DEBUG
                                               'url_org': f"{url_prefix}{img_id_suffix_org}",
-                                              'url_vis': f"{url_prefix}{img_id_suffix_vis}",
+                                            #   'url_vis': f"{url_prefix}{img_id_suffix_vis}", # DEBUG
                                               'filename': filename,
                                               'project_name': project_name,
                                               'camera_id': camera_id,
@@ -881,35 +892,35 @@ class IMAPConnection():
             raise
         
         # loop thourgh csv and check which images need to be analysed
-        with open(admin_csv, 'r') as csv_file:
+        with open(admin_files_csv, 'r') as csv_file:
             csv_reader = csv.DictReader(csv_file)
             for row in csv_reader:
                 if row['analysed'] == 'False':
-                    log(f"analysing image: {img_id}", new_line = True)
                     img_id = row['img_id']
                     full_path_org = row['full_path_org']
-                    full_path_vis = row['full_path_vis']
+                    # full_path_vis = row['full_path_vis'] # DEBUG
                     filename = row['filename']
                     camera_id = row['camera_id']
                     project_name = row['project_name']
                     inference_retry_count = int(row['inference_retry_count'])
+                    log(f"analysing image: {img_id}", new_line = True)
                     
                     try:
                         if inference_retry_count <= 3:
                             log(f"running inference on image '{filename}'", indent = 2)
-                            predict_bool = predict_single_image(filename, full_path_org, full_path_vis, camera_id, project_name)
+                            predict_bool = predict_single_image(filename, full_path_org, camera_id, project_name) # full_path_vis, DEBUG
                             if predict_bool:
-                                update_admin_csv({'img_id': img_id,
+                                update_admin_files_csv({'img_id': img_id,
                                                 'analysed': True})
                     except Exception as e:
                         log(f"an error occurred. Could not run inference on image '{filename}' because '{e}'", indent = 2)
                         log(f"traceback: {traceback.print_exc()}", indent = 2)
                         inference_retry_count = inference_retry_count + 1
-                        update_admin_csv({'img_id': img_id,
+                        update_admin_files_csv({'img_id': img_id,
                                           'inference_retry_count': inference_retry_count})
                         if inference_retry_count > 3:
                             log(f"maximum retries exceeded. Skipping image '{filename}'", indent = 2)
-                            update_admin_csv({'img_id': img_id,
+                            update_admin_files_csv({'img_id': img_id,
                                               'analysed': True})
 
 # get unique string
@@ -1555,23 +1566,32 @@ def add_detection(dict, key, value):
     dict[key].append(value)
     return dict
 
-# initialise the administration csv
-def init_admin_csv():
-    global admin_csv
-    headers = ['img_id', 'full_path_org', 'full_path_vis', 'url_org', 'url_vis', 'filename',
-               'project_name', 'camera_id', 'analysed', 'inference_retry_count']
-    with open(admin_csv, 'w', newline='') as csvfile:
+# initialise the file administration csv
+def init_admin_files_csv():
+    global admin_files_csv
+    # headers = ['img_id', 'full_path_org', 'full_path_vis', 'url_org', 'url_vis', 'filename', # DEBUG
+    #            'project_name', 'camera_id', 'analysed', 'inference_retry_count']
+    headers = ['img_id', 'full_path_org', 'url_org', 'filename', 'project_name', 'camera_id', 'analysed', 'inference_retry_count']
+    with open(admin_files_csv, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
         writer.writerow(headers)
 
-# update information in the admin csv
-def update_admin_csv(new_data):
-    global admin_csv
+# # initialise the detection administration csv
+# def init_admin_detections_csv():
+#     global admin_detections_csv
+#     headers = ['full_path_org', 'full_path_vis', 'url_org', 'url_vis', 'detection', 'filename', 'project_name', 'camera_id']
+#     with open(admin_detections_csv, 'w', newline='') as csvfile:
+#         writer = csv.writer(csvfile)
+#         writer.writerow(headers)
+
+# update information in the file admin csv
+def update_admin_files_csv(new_data):
+    global admin_files_csv
     rows = []
     row_exists = False
     
     # read
-    with open(admin_csv, 'r', newline='') as csvfile:
+    with open(admin_files_csv, 'r', newline='') as csvfile:
         reader = csv.DictReader(csvfile)
         headers = reader.fieldnames
         
@@ -1592,18 +1612,57 @@ def update_admin_csv(new_data):
         rows.append(new_row)
     
     # write
-    with open(admin_csv, 'w', newline='') as csvfile:
+    with open(admin_files_csv, 'w', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=headers)
         writer.writeheader()
         writer.writerows(rows)
         
     # copy to shared folder if on Ubuntu
     if not use_imgbb:
-        src = admin_csv
+        src = admin_files_csv
         dst = os.path.join(file_sharing_folder, "admin.csv")
         subprocess.run(['sudo', 'cp', src, dst], check=True)
         log(f"copied admin.csv from '{src}' to '{dst}'.", indent=3)
+
+# # update information in the detection admin csv # DEBUG
+# def add_row_to_admin_detections_csv(new_data):
+#     global admin_detections_csv
+#     rows = []
+#     # row_exists = False
     
+#     # read
+#     with open(admin_detections_csv, 'r', newline='') as csvfile:
+#         reader = csv.DictReader(csvfile)
+#         headers = reader.fieldnames
+        
+#         # for row in reader: # DEBUG
+#         #     if row['det_id'] == new_data['det_id']:
+#         #         row_exists = True
+                
+#         #         # update
+#         #         for key, value in new_data.items():
+#         #             if key in row:
+#         #                 row[key] = value
+#         #     rows.append(row)
+    
+#     # add
+#     # if not row_exists:
+#     new_row = {header: '' for header in headers}
+#     new_row.update(new_data)
+#     rows.append(new_row)
+    
+#     # write
+#     with open(admin_detections_csv, 'w', newline='') as csvfile:
+#         writer = csv.DictWriter(csvfile, fieldnames=headers)
+#         writer.writeheader()
+#         writer.writerows(rows)
+        
+#     # copy to shared folder if on Ubuntu
+#     if not use_imgbb:
+#         src = admin_detections_csv
+#         dst = os.path.join(file_sharing_folder, "admin.csv")
+#         subprocess.run(['sudo', 'cp', src, dst], check=True)
+#         log(f"copied admin.csv from '{src}' to '{dst}'.", indent=3)
 
 ###################################
 ############ MAIN CODE ############
@@ -1669,11 +1728,19 @@ def run_script():
 # initially run the script
 if __name__ == "__main__":
     
-    # init admin cvs if it doesn't exist
-    if not os.path.isfile(admin_csv):
-        init_admin_csv() 
-        log(f"initialised admin csv file at '{admin_csv}'")
+    # init file admin cvs if it doesn't exist
+    if not os.path.isfile(admin_files_csv):
+        init_admin_files_csv() 
+        log(f"initialised admin csv file at '{admin_files_csv}'")
     
+    # # init detection admin cvs if it doesn't exist DEBUG
+    # if not os.path.isfile(admin_detections_csv):
+    #     init_admin_detections_csv() 
+    #     log(f"initialised admin csv file at '{admin_detections_csv}'")
+
+    # DEBUG
+    print("DEBUG THIS IS THE NEW PYTHON SCRIPT")
+
     # run the script
     run_script()
 
