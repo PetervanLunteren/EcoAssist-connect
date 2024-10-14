@@ -589,7 +589,7 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
             bottom = int(round(detection['bbox'][3] * img_height)) + top
             bb.add(image_to_vis, left, top, right, bottom, f'{label} {detection["conf"]}', "red")
             det_label_original = detection['det_label_original']
-        filename_vis = os.path.splitext(filename)[0] + f"-vis-{label}" + os.path.splitext(filename)[1]
+        filename_vis = os.path.splitext(filename)[0] + f"-vis-{label.replace(" ", "-")}" + os.path.splitext(filename)[1]
         full_path_vis = os.path.join(os.path.dirname(full_path_org), filename_vis)
         cv2.imwrite(full_path_vis, image_to_vis)
         log(f"saved visualised image to {full_path_vis}", indent = 3)
@@ -1620,9 +1620,9 @@ def update_admin_files_csv(new_data):
     # copy to shared folder if on Ubuntu
     if not use_imgbb:
         src = admin_files_csv
-        dst = os.path.join(file_sharing_folder, "admin.csv")
+        dst = os.path.join(file_sharing_folder, "admin_files.csv")
         subprocess.run(['sudo', 'cp', src, dst], check=True)
-        log(f"copied admin.csv from '{src}' to '{dst}'.", indent=3)
+        log(f"copied admin_files.csv from '{src}' to '{dst}'.", indent=3)
 
 # # update information in the detection admin csv # DEBUG
 # def add_row_to_admin_detections_csv(new_data):
