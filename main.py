@@ -556,7 +556,7 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
     if detections_dict == {}:
         log(f"detected no objects labelled as empty image", indent = 2)
         det_label_original = "empty"
-        detections_dict["empty"] = [{'conf': 0, 'bbox': [0, 0, 0, 0]}]
+        detections_dict["empty"] = [{'conf': 0, 'bbox': [0, 0, 0, 0]}, "det_label_original": "empty"]
     
     # image specific metadata
     exif = fetch_img_exif(full_path_org)
