@@ -6,6 +6,7 @@ CONDA_DIR=${2}
 CLS_THRESH=${3}
 ECO_PATH=${4}
 IMG_DIR=${5}
+SMOOTH_BOOL=${6}
 
 # set MPS functionality for silicon computing
 if [ "$(uname)" == "Darwin" ]; then
@@ -33,7 +34,7 @@ export PATH="${ECO_PATH}:${ECO_PATH}/cameratraps:$PATH"
 export PYTHONPATH="$PYTHONPATH:${ECO_PATH}:${ECO_PATH}/cameratraps:${ECO_PATH}/yolov5"
 
 # run script
-python "${ECO_PATH}/EcoAssist/classification_utils/model_types/deepfaune/classify_detections.py" "${ROOT_DIR}" "${MODEL_PATH}" "0.1" "${CLS_THRESH}" "False" "${JSON_PATH}" "None"
+python "${ECO_PATH}/EcoAssist/classification_utils/model_types/deepfaune/classify_detections.py" "${ROOT_DIR}" "${MODEL_PATH}" "0.1" "${CLS_THRESH}" "${SMOOTH_BOOL}" "${JSON_PATH}" "None"
 
 # switch back to base env
 conda deactivate
