@@ -512,6 +512,9 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
     # get project preferences
     blur_people_bool = all_project_settings[project_name].get("blur_people", True)
 
+    # get project preferences
+    smooth_bool = all_project_settings[project_name].get("smooth", False)
+
     # make sure only the project specific species can be predicted
     update_species_presence_json(project_name) 
     
@@ -519,17 +522,25 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
     img_dir = os.path.dirname(full_path_org)
     # Path(os.path.dirname(full_path_vis)).mkdir(parents=True, exist_ok=True)
 
-    # run megadetector
-    log("running megadetector", indent = 2)
-    md_cmd_windows = [f'{curr_dir}/run_megadetector.bat', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files), str(img_dir)]
-    md_cmd_unix = ['bash', f'{curr_dir}/run_megadetector.command', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files), str(img_dir)]
-    run_bash_cmd(md_cmd_windows if osys == "windows" else md_cmd_unix)
+    # run detection model
+    detection_model = all_project_settings[project_name]["detection_model"]
+    if detection_model == "MegaDetector 5A":
+        log("running MegaDetector 5A", indent = 2)
+        md_cmd_windows = [f'{curr_dir}/run_megadetector.bat', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files), str(img_dir)]
+        md_cmd_unix = ['bash', f'{curr_dir}/run_megadetector.command', str(curr_dir), str(conda_dir), str(detection_threshold), str(EcoAssist_files), str(img_dir)]
+        run_bash_cmd(md_cmd_windows if osys == "windows" else md_cmd_unix)
+    else:
+        log(f"UNKNOWN DETECTION MODEL: {detection_model}", indent = 2)
 
-    # run deepfaune 
-    log("running deepfaune", indent = 2)
-    df_cmd_windows = [f'{curr_dir}/run_deepfaune.bat', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files), str(img_dir)]
-    df_cmd_unix = ['bash', f'{curr_dir}/run_deepfaune.command', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files), str(img_dir)]
-    run_bash_cmd(df_cmd_windows if osys == "windows" else df_cmd_unix)
+    # run classification model
+    classification_model = all_project_settings[project_name]["classification_model"]
+    if classification_model == "DeepFaune v1": 
+        log("running deepfaune", indent = 2)
+        df_cmd_windows = [f'{curr_dir}/run_deepfaune.bat', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files), str(img_dir)] # not built for smooth yet
+        df_cmd_unix = ['bash', f'{curr_dir}/run_deepfaune.command', str(curr_dir), str(conda_dir), str(classification_threshold), str(EcoAssist_files), str(img_dir), str(smooth_bool)]
+        run_bash_cmd(df_cmd_windows if osys == "windows" else df_cmd_unix)
+    else:
+        log(f"UNKNOWN CLASSIFICATION MODEL: {classification_model}", indent = 2)
 
     # loop through json
     json_fpath = os.path.join(img_dir, "image_recognition_file.json")
@@ -609,8 +620,8 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
             "detection_number" : int(count),
             "max_det_conf" : max_conf,
             "gps_link" : "" if gps.get('Latitude', 0.0) == 0. and gps.get('Longitude', 0.0) == 0. else f"maps.google.com/?q={gps.get('Latitude', 0.0)},{gps.get('Longitude', 0.0)}",
-            "cls_model_name" : "Deepfaune v1.1",
-            "det_model_name" : "MegaDetector v5a",
+            "cls_model_name" : classification_model,
+            "det_model_name" : detection_model,
         }
 
         # add time elapsed to detection payload
