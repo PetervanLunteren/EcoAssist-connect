@@ -1,14 +1,8 @@
 # EcoAssist connect
 # Analyse images in real time and send notifications 
-# Peter van Lunteren, 24 Sept 2024
+# Peter van Lunteren, 7 Nov 2024
 
-# TODO: put admin csv, project csv's, etc etc in fixed folders so I can quickly download them via url
-# TODO: clean saved images every week after the report is sent
-# TODO: save daily report in the project folder
-# TODO: adjust the bat files with new img_dir so it works on windows too
 # TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
-# TODO: it saves it at two locations: ~/EcoAssist-connect/imgs/ and in the saher folder. We can remove it from the non-shared location. 
-# TODO: er moet iets van een functie in die ruimte vrij maakt. Ook de logfile moet af en toe ingekort worden. Misschien iedere week alleen de laatste 10.000 regels overhouden oid? Op de windows was ie al 100 MB.
 
 ###########################################
 ############ INITIALIZE SCRIPT ############
@@ -227,7 +221,7 @@ def import_project_settings():
 
 # post-process files
 # this is a simplified version of the ecoassist function
-def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, crp, exp, exp_format, data_type, time_elapsed = ""):
+def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, crp, exp, exp_format, data_type, time_elapsed = "", lat_lon = {}, camera_name = ""):
 
     # set json file
     recognition_file = os.path.join(src_dir, "image_recognition_file.json")
@@ -259,7 +253,7 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
         csv_for_files = os.path.join(dst_dir, "results_files.csv")
         if not os.path.isfile(csv_for_files):
             df = pd.DataFrame(list(), columns=["absolute_path", "relative_path", "data_type", "n_detections", "max_confidence", "human_verified",
-                                               'time_to_notification', # new column for EcoAssist-connect
+                                               'time_to_notification', 'camera_name', # new columns for EcoAssist-connect
                                                'DateTimeOriginal', 'DateTime', 'DateTimeDigitized', 'Latitude', 'Longitude', 'GPSLink', 'Altitude',
                                                'Make', 'Model', 'Flash', 'ExifOffset', 'ResolutionUnit', 'YCbCrPositioning', 'XResolution', 'YResolution',
                                                'ExifVersion', 'ComponentsConfiguration', 'FlashPixVersion', 'ColorSpace', 'ExifImageWidth',
@@ -272,7 +266,7 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
         if not os.path.isfile(csv_for_detections):
             df = pd.DataFrame(list(), columns=["absolute_path", "relative_path", "data_type", "label", "confidence", "human_verified", "bbox_left",
                                                "bbox_top", "bbox_right", "bbox_bottom", "file_height", "file_width", 
-                                               'time_to_notification', # new column for EcoAssist-connect
+                                               'time_to_notification', 'camera_name', # new columns for EcoAssist-connect
                                                'DateTimeOriginal', 'DateTime',
                                                'DateTimeDigitized', 'Latitude', 'Longitude', 'GPSLink', 'Altitude', 'Make', 'Model', 'Flash', 'ExifOffset',
                                                'ResolutionUnit', 'YCbCrPositioning', 'XResolution', 'YResolution', 'ExifVersion', 'ComponentsConfiguration',
@@ -444,14 +438,19 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
         
         # collect info to append to csv files
         if exp:
+            
+            # EcoAssist-connect reads the lat lon from the image text if not in metadata
+            exif_params[3] = exif_params[3] if exif_params[3] != "NA" else lat_lon.get('Latitude', "NA")
+            exif_params[4] = exif_params[4] if exif_params[4] != "NA" else lat_lon.get('Longitude', "NA")
+            
             # file info
-            row = pd.DataFrame([[src_dir, file, data_type, len(bbox_info), max_detection_conf, manually_checked, time_elapsed, *exif_params]])
+            row = pd.DataFrame([[src_dir, file, data_type, len(bbox_info), max_detection_conf, manually_checked, time_elapsed, camera_name, *exif_params]])
             row.to_csv(csv_for_files, encoding='utf-8', mode='a', index=False, header=False)
 
             # detections info
             rows = []
             for bbox in bbox_info:
-                row = [src_dir, file, data_type, *bbox[:9], time_elapsed, *exif_params]
+                row = [src_dir, file, data_type, *bbox[:9], time_elapsed, camera_name, *exif_params]
                 rows.append(row)
             rows = pd.DataFrame(rows)
             rows.to_csv(csv_for_detections, encoding='utf-8', mode='a', index=False, header=False)
@@ -696,7 +695,9 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
                 exp = True,
                 exp_format = "CSV",
                 data_type = "img",
-                time_elapsed = detection_payload["time_elapsed"])
+                time_elapsed = detection_payload["time_elapsed"],
+                lat_lon = gps,
+                camera_name = camera_id)
     
     if save_images:
         # save the visualised images
