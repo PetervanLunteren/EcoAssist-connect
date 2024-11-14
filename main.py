@@ -30,6 +30,7 @@ import base64
 import requests
 import base64
 import requests
+from filelock import FileLock # pip install filelock
 import json
 import traceback
 import piexif
@@ -286,6 +287,7 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                                                'ResolutionUnit', 'YCbCrPositioning', 'XResolution', 'YResolution', 'ExifVersion', 'ComponentsConfiguration',
                                                'FlashPixVersion', 'ColorSpace', 'ExifImageWidth', 'ISOSpeedRatings', 'ExifImageHeight', 'ExposureMode',
                                                'WhiteBalance', 'SceneCaptureType', 'ExposureTime', 'Software', 'Sharpness', 'Saturation', 'ReferenceBlackWhite'])
+            # if this is the first time the file is created, no need to lock the file
             df.to_csv(csv_for_detections, encoding='utf-8', index=False)
 
     # loop through images
@@ -468,7 +470,8 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                 row = [src_dir, file, data_type, *bbox[:9], time_elapsed, camera_name, *exif_params]
                 rows.append(row)
             rows = pd.DataFrame(rows)
-            rows.to_csv(csv_for_detections, encoding='utf-8', mode='a', index=False, header=False)
+            write_with_lock(csv_for_detections, rows) # DEBUG
+            # rows.to_csv(csv_for_detections, encoding='utf-8', mode='a', index=False, header=False) # DEBUG
     
         # visualize images
         if vis and len(bbox_info) > 0:
@@ -488,6 +491,13 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                 image_new = Image.open(im)
                 image_new.save(im, exif=exif)
                 image_new.close()
+
+# Function to write to a file with locking
+def write_with_lock(file_path, rows):
+    lock_path = file_path + ".lock"
+    lock = FileLock(lock_path)
+    with lock.acquire(timeout=10):
+        rows.to_csv(file_path, encoding='utf-8', mode='a', index=False, header=False)
 
 # blur specific bbox
 def blur_box(image_path, width, height, bbox):
@@ -885,7 +895,7 @@ class IMAPConnection():
                                 project_name = retrieve_project_name_from_imei(daily_report_dict['IMEI'])
                                 dst_csv = os.path.join(fpath_output_dir, project_name, "data", "daily_reports.csv")
                                 Path(os.path.dirname(dst_csv)).mkdir(parents=True, exist_ok=True)
-                                add_dict_to_csv(daily_report_dict, dst_csv)
+                                add_dict_to_csv_with_lock(daily_report_dict, dst_csv)
 
         # retry if something blocks the connection
         except Exception as e:
@@ -1272,14 +1282,17 @@ def parse_txt_file(file):
     return parsed_data
 
 # append dict to csv file
-def add_dict_to_csv(data_dict, csv_file_path):
+def add_dict_to_csv_with_lock(data_dict, file_path):
+    lock_path = file_path + ".lock"
+    lock = FileLock(lock_path)
     headers = list(data_dict.keys())
-    file_exists = os.path.isfile(csv_file_path)
-    with open(csv_file_path, 'a', newline='') as csvfile:
-        writer = csv.DictWriter(csvfile, fieldnames=headers)
-        if not file_exists:
-            writer.writeheader()
-        writer.writerow(data_dict)
+    file_exists = os.path.isfile(file_path)
+    with lock.acquire(timeout=10):
+        with open(file_path, 'a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=headers)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(data_dict)
 
 # log to file and to console
 def log(string, indent = 0, end = '\n', new_line = False):
