@@ -1,6 +1,6 @@
 # EcoAssist connect
 # Analyse images in real time and send notifications 
-# Peter van Lunteren, 7 Nov 2024
+# Peter van Lunteren, 14 Nov 2024
 
 # TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
 
@@ -111,7 +111,6 @@ url_prefix_macos = config['url_prefix_macos']
 url_prefix_linux = config['url_prefix_linux']
 url_prefix_windows = config['url_prefix_windows']
 url_prefix = url_prefix_windows if osys == "windows" else url_prefix_macos if osys == "macos" else url_prefix_linux
-save_images = config['save_images']
 file_sharing_folder = config['file_sharing_folder']
 camera_id_imei_label_map = config['camera_id_imei_label_map']
 
@@ -139,6 +138,11 @@ mailgun_api_key = config['mailgun_api_key']
 # imgbb
 imgbb_key = config['imgbb_key']
 use_imgbb = osys in ["windows", "macos"]
+
+# debug settings
+debug_mode = config['debug_mode']
+debug_gmail_label = config['debug_gmail_label']
+debug_whatsapp_number = config['debug_whatsapp_number']
 
 # add EcoAssist files to PATH
 sys.path.insert(0, os.path.join(EcoAssist_files))
@@ -221,7 +225,17 @@ def import_project_settings():
 
 # post-process files
 # this is a simplified version of the ecoassist function
-def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, crp, exp, exp_format, data_type, time_elapsed = "", lat_lon = {}, camera_name = ""):
+def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, crp, exp, exp_format, data_type, time_elapsed = "", lat_lon = {}, camera_name = "", project_name = None):
+
+    # get species alias names
+    if project_name:
+        species_alias = all_project_settings[project_name]["species_alias"]
+
+    # use rshiny directory structure
+    csv_dst_dir = os.path.join(dst_dir, "data")
+    Path(csv_dst_dir).mkdir(parents=True, exist_ok=True)
+    img_dst_dir = os.path.join(dst_dir, "www", 'imgs')
+    Path(img_dst_dir).mkdir(parents=True, exist_ok=True)
 
     # set json file
     recognition_file = os.path.join(src_dir, "image_recognition_file.json")
@@ -250,7 +264,7 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
     # these csv files are then converted to the desired format and deleted, if required
     if exp:
         # for files
-        csv_for_files = os.path.join(dst_dir, "results_files.csv")
+        csv_for_files = os.path.join(csv_dst_dir, "results_files.csv")
         if not os.path.isfile(csv_for_files):
             df = pd.DataFrame(list(), columns=["absolute_path", "relative_path", "data_type", "n_detections", "max_confidence", "human_verified",
                                                'time_to_notification', 'camera_name', # new columns for EcoAssist-connect
@@ -262,7 +276,7 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
             df.to_csv(csv_for_files, encoding='utf-8', index=False)
         
         # for detections
-        csv_for_detections = os.path.join(dst_dir, "results_detections.csv")
+        csv_for_detections = os.path.join(csv_dst_dir, "results_detections.csv")
         if not os.path.isfile(csv_for_detections):
             df = pd.DataFrame(list(), columns=["absolute_path", "relative_path", "data_type", "label", "confidence", "human_verified", "bbox_left",
                                                "bbox_top", "bbox_right", "bbox_bottom", "file_height", "file_width", 
@@ -399,6 +413,7 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                     # get detection info
                     category = detection["category"]
                     label = label_map[category]
+                    label = species_alias.get(label, label) # change to alias name
                     if sep:
                         unique_labels.append(label)
                         unique_labels = sorted(list(set(unique_labels)))
@@ -423,18 +438,18 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                         # store in list
                         bbox_info.append([label, conf, manually_checked, left, top, right, bottom, height, width, xo, yo, w_box, h_box])
 
-        # separate files
-        if sep:
-            if n_detections == 0:
-                file = move_files(file, "empty", file_placement, max_detection_conf, sep_conf, dst_dir, src_dir, manually_checked)
-            else:
-                if len(unique_labels) > 1:
-                    labels_str = "_".join(unique_labels)
-                    file = move_files(file, labels_str, file_placement, max_detection_conf, sep_conf, dst_dir, src_dir, manually_checked)
-                elif len(unique_labels) == 0:
-                    file = move_files(file, "empty", file_placement, max_detection_conf, sep_conf, dst_dir, src_dir, manually_checked)
-                else:
-                    file = move_files(file, label, file_placement, max_detection_conf, sep_conf, dst_dir, src_dir, manually_checked)
+        # # separate files
+        # if sep:
+        #     if n_detections == 0:
+        #         file = move_files(file, "empty", file_placement, max_detection_conf, sep_conf, img_dst_dir, src_dir, manually_checked)
+        #     else:
+        #         if len(unique_labels) > 1:
+        #             labels_str = "_".join(unique_labels)
+        #             file = move_files(file, labels_str, file_placement, max_detection_conf, sep_conf, img_dst_dir, src_dir, manually_checked)
+        #         elif len(unique_labels) == 0:
+        #             file = move_files(file, "empty", file_placement, max_detection_conf, sep_conf, img_dst_dir, src_dir, manually_checked)
+        #         else:
+        #             file = move_files(file, label, file_placement, max_detection_conf, sep_conf, img_dst_dir, src_dir, manually_checked)
         
         # collect info to append to csv files
         if exp:
@@ -464,7 +479,7 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                     vis_label = f"{bbox[0]} {round(bbox[1], 2)}"
                 color = colors[int(inverted_label_map[bbox[0]])]
                 bb.add(im_to_vis, *bbox[3:7], vis_label, color)
-            im = os.path.join(dst_dir, file)
+            im = os.path.join(img_dst_dir, file)
             Path(os.path.dirname(im)).mkdir(parents=True, exist_ok=True)
             cv2.imwrite(im, im_to_vis)
 
@@ -473,15 +488,6 @@ def postprocess(src_dir, dst_dir, thresh, sep, file_placement, sep_conf, vis, cr
                 image_new = Image.open(im)
                 image_new.save(im, exif=exif)
                 image_new.close()
-
-    # create summary csv
-    if exp:
-        csv_for_summary = os.path.join(dst_dir, "results_summary.csv")
-        if os.path.exists(csv_for_summary):
-            os.remove(csv_for_summary)
-        det_info = pd.DataFrame(pd.read_csv(csv_for_detections, dtype=dtypes, low_memory=False))
-        summary = pd.DataFrame(det_info.groupby(['label', 'data_type']).size().sort_values(ascending=False).reset_index(name='n_detections'))
-        summary.to_csv(csv_for_summary, encoding='utf-8', mode='w', index=False, header=True)
 
 # blur specific bbox
 def blur_box(image_path, width, height, bbox):
@@ -540,7 +546,7 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
         run_bash_cmd(df_cmd_windows if osys == "windows" else df_cmd_unix)
     else:
         log(f"UNKNOWN CLASSIFICATION MODEL: {classification_model}", indent = 2)
-
+                
     # loop through json
     json_fpath = os.path.join(img_dir, "image_recognition_file.json")
     with open(json_fpath) as image_recognition_file_content:
@@ -557,6 +563,25 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
                 det_label = species_alias.get(det_label_original, det_label_original) # the set alias for this species
                 value = {"conf" : detection['conf'], "bbox" : detection['bbox'], "det_label_original": det_label_original}
                 add_detection(detections_dict, det_label, value)
+
+    # # rename the labels to their alias names
+    # json_fpath = os.path.join(img_dir, "image_recognition_file.json")
+    # with open(json_fpath) as image_recognition_file_content:
+    #     data = json.load(image_recognition_file_content)
+    # label_map = data['detection_categories']
+    # for image in data['images']:
+    #     if "failure" in image:
+    #         continue  
+    #     if 'detections' in image:
+    #         for detection in image['detections']:
+    #             print(f"DEBUG: {detection['category']}")
+    #             label_original = label_map.get(detection['category'], "unknown")  # the original label
+    #             print(f"DEBUG: {label_original}")
+    #             label_alias = species_alias.get(label_original, label_original) # the set alias for this species
+    #             print(f"DEBUG: {label_alias}")
+    #             detection['category'] = label_alias # adjust value in json, because preprocessing reads it from file, and not memory
+    # with open(json_fpath, 'w') as outfile:
+    #     json.dump(data, outfile, indent=2)
 
     # if nothing is detected add dummy detection so that people can receive a notification if required
     if detections_dict == {}:
@@ -697,39 +722,10 @@ def predict_single_image(filename, full_path_org, camera_id, project_name):
                 data_type = "img",
                 time_elapsed = detection_payload["time_elapsed"],
                 lat_lon = gps,
-                camera_name = camera_id)
-    
-    if save_images:
-        # save the visualised images
-        dst_dir = os.path.join(fpath_output_dir, project_name, "saved_imgs", "vis")
-        Path(dst_dir).mkdir(parents=True, exist_ok=True)
-        postprocess(src_dir = img_dir,
-                    dst_dir = dst_dir,
-                    thresh = postprocess_threshold,
-                    sep = True,
-                    file_placement = 2,
-                    sep_conf = False,
-                    vis = True,
-                    crp = False,
-                    exp = False,
-                    exp_format = "CSV",
-                    data_type = "img")
+                camera_name = camera_id,
+                project_name = project_name)
 
-        # save the original images
-        dst_dir = os.path.join(fpath_output_dir, project_name, "saved_imgs", "org")
-        Path(dst_dir).mkdir(parents=True, exist_ok=True)
-        postprocess(src_dir = img_dir,
-                    dst_dir = dst_dir,
-                    thresh = postprocess_threshold,
-                    sep = True,
-                    file_placement = 2,
-                    sep_conf = False,
-                    vis = False,
-                    crp = False,
-                    exp = False,
-                    exp_format = "CSV",
-                    data_type = "img")
-
+    # return true if the function ran successfully
     return True
 
 # find out to which project the camera belongs to
@@ -759,7 +755,10 @@ class IMAPConnection():
     def check_tasks(self):
         try:
             log("checking email")
-            self.imap.select(gmail_label)
+            if debug_mode:
+                self.imap.select(debug_gmail_label)
+            else:
+                self.imap.select(gmail_label)
             status, messages = self.imap.search(None, '(UNSEEN)')
             if status == "OK":
                 message_ids = messages[0].split()
@@ -831,7 +830,9 @@ class IMAPConnection():
                         if filename.lower().endswith(".jpg") or filename.lower().endswith(".jpeg"):
                             exif_data = attachement.info.get('exif')
                             filename = filename.replace(" ", "_")
-                            fpath_org_img = os.path.join(curr_dir, 'imgs', img_id, filename)
+                            # fpath_org_img = os.path.join(curr_dir, 'imgs', img_id, filename) # DEBUG
+                            fpath_org_img = os.path.join(curr_dir, 'output', project_name, 'www', 'imgs', img_id, filename)
+                            print(f"DEBUG: {fpath_org_img}")
                             
                             Path(os.path.dirname(fpath_org_img)).mkdir(parents=True, exist_ok=True)
                             if exif_data is not None:
@@ -882,7 +883,7 @@ class IMAPConnection():
                                 for k, v in daily_report_dict.items():
                                     log(f"{k} : {v}", indent = 3)
                                 project_name = retrieve_project_name_from_imei(daily_report_dict['IMEI'])
-                                dst_csv = os.path.join(fpath_output_dir, project_name, "daily_reports.csv")
+                                dst_csv = os.path.join(fpath_output_dir, project_name, "data", "daily_reports.csv")
                                 Path(os.path.dirname(dst_csv)).mkdir(parents=True, exist_ok=True)
                                 add_dict_to_csv(daily_report_dict, dst_csv)
 
@@ -993,6 +994,8 @@ def send_whatsapp(detection_payload, full_path_vis, full_path_org):
 
     # call the twilio function with retry logic
     try:
+        if debug_mode:
+            whatsapp_receivers = [[debug_whatsapp_number, "debug"]]
         send_whatsapp_via_twilio(content_vars, whatsapp_receivers)
     except retrying.RetryError:
         log("maximum retries exceeded. Could not send WhatsApp message.", indent=3)
