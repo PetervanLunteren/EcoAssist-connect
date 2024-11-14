@@ -58,7 +58,6 @@ os.chdir(curr_dir)
 # init vars
 fpath_output_dir = os.path.join(curr_dir, 'output')
 fpath_log_file = os.path.join(fpath_output_dir, 'log.txt')
-fpath_project_specification_dir = os.path.join(curr_dir, 'settings')
 fpath_deepfaune_variables_json = os.path.join(curr_dir, 'models', 'deepfaune', 'variables.json')
 admin_files_csv = os.path.join(curr_dir, "admin_files.csv")
 
@@ -162,15 +161,16 @@ def import_project_settings():
     global all_project_settings
     all_project_settings = {}
 
+    # find project directories
+    project_dirs = [os.path.join(fpath_output_dir, o) for o in os.listdir(fpath_output_dir) if os.path.isdir(os.path.join(fpath_output_dir, o))]
+    
     # loop over all project xslx files present
-    for filename in [file for file in os.listdir(fpath_project_specification_dir) if file.endswith('.xlsx')]:
-
+    for project_dir in project_dirs:
+        
         # init
-        project_name = os.path.splitext(filename)[0]
+        project_name = os.path.basename(project_dir)
+        project_specification_xslx = os.path.join(project_dir, "data", "settings.xlsx")
         log(f"parsing project settings for project '{project_name}'")
-
-        # for project_xslx in 
-        project_specification_xslx = os.path.join(fpath_project_specification_dir, filename)
 
         # import general settings
         general_settings_df = pd.read_excel(project_specification_xslx, sheet_name='general_settings')
