@@ -1,6 +1,6 @@
 # EcoAssist connect
 # Analyse images in real time and send notifications 
-# Peter van Lunteren, 14 Nov 2024
+# Peter van Lunteren, 23 Dec 2024
 
 # TODO: volgens mij returned the inference functie altijd True, ook als ie ergens errort. Return False als er een error is
 
@@ -1376,8 +1376,9 @@ def read_gps_text_from_image(image_path):
         log(f"that means that the picture size of camera is set to 'Bigger'", indent = 2)
         GPS_area = (454, 1375, 900, 1434)
     else:
+        # these small images cannot be realiably read by tesseract, return 0, 0
         log(f"that means that the picture size of camera is 'small' - the camera is only 2G connected", indent = 2)
-        return [2, 2] # TODO: if gps is 2,2 it means that the camera is sending over 2G - make notification
+        return [0, 0]
     cropped_image = image.crop(GPS_area)
 
     # # check if the area is selected properly
